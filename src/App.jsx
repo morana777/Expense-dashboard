@@ -664,18 +664,7 @@ export default function App() {
         </div>
       </header>
 
-      {expenses.length === 0 && (
-        <div className="card empty-state">
-          <div className="empty-icon"><Sparkles size={26} /></div>
-          <h3>Your money, from scratch</h3>
-          <p>This is yours only. No prebuilt stuff. Just your real numbers, when you are ready.</p>
-          <div className="empty-steps">
-            <div><span>1</span> Set your real income above</div>
-            <div><span>2</span> Add your first expense below, or import your bank CSV</div>
-            <div><span>3</span> Add more as you spend, and check your totals at the end of the month</div>
-          </div>
-        </div>
-      )}
+
 
       {(overBudget.length > 0 || balance < 200) && expenses.length > 0 && (
         <div className="alert">
