@@ -5,7 +5,10 @@ import { Wallet, TrendingUp, TrendingDown, PiggyBank, Search, Trash2, Target, Do
 // REAL-LIFE VERSION - START BLANK
 // No sample expenses, bills or sections. Add only your real data.
 // Supabase schema: expense_dashboard (see supabase-schema.sql - one main file)
-// Auth is required for sync. Without login, the app works local-only.
+// SUPABASE ONLY - no local mode, no guest mode.
+// Sign in is required. All expenses, bills, sections and settings live in Supabase
+// schema expense_dashboard, filtered by user_id. Nothing is saved in localStorage
+// except the dark/light theme, which is just a display setting.
 // Deploy: see netlify.toml + manifest.webmanifest
 
 const SUPABASE_SCHEMA = "expense_dashboard";
@@ -26,52 +29,18 @@ const categories = ["Food", "Housing", "Transport", "Entertainment", "Shopping",
 const budgets = { Food: 300, Housing: 1000, Transport: 150, Entertainment: 100, Shopping: 250, Other: 100 };
 const COLORS = ["#7c3aed", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#94a3b8"];
 
-function loadExpenses() {
-  try {
-    const raw = localStorage.getItem("expenses_v2");
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((e) => e && typeof e.title === "string" && typeof e.amount === "number" && !isNaN(e.amount) && e.amount > 0 && e.date);
-  } catch { return []; }
-}
-function loadNumber(key, fallback) {
-  try {
-    const v = Number(localStorage.getItem(key));
-    return !isNaN(v) && v >= 0 ? v : fallback;
-  } catch { return fallback; }
-}
-function saveSafe(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { }
-}
-function loadSections() {
-  try {
-    const raw = localStorage.getItem("custom_sections_v1");
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
-}
-function loadBills() {
-  try {
-    const raw = localStorage.getItem("bills_v1");
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
-}
-function loadList(key) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-}
+
+
+
+
+
+
 
 export default function App() {
-  const [expenses, setExpenses] = useState(loadExpenses);
-  const [monthlyIncome, setMonthlyIncome] = useState(() => loadNumber("income_v2", 0));
-  const [savingsGoal, setSavingsGoal] = useState(() => loadNumber("goal_v2", 0));
-  const [openingBalance, setOpeningBalance] = useState(() => loadNumber("opening_v1", 0));
+  const [expenses, setExpenses] = useState([]);
+  const [monthlyIncome, setMonthlyIncome] = useState(0);
+  const [savingsGoal, setSavingsGoal] = useState(0);
+  const [openingBalance, setOpeningBalance] = useState(0);
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("Food");
@@ -82,58 +51,45 @@ export default function App() {
   const [sortBy, setSortBy] = useState("newest");
   const [error, setError] = useState("");
   const [lastDeleted, setLastDeleted] = useState(null);
-  const [sections, setSections] = useState(loadSections);
+  const [sections, setSections] = useState([]);
   const [newSectionTitle, setNewSectionTitle] = useState("");
   const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("theme_dark") === "true"; } catch { return false; } });
-  const [syncStatus, setSyncStatus] = useState(supabaseUrl ? "local" : "local-only");
+  const [syncStatus, setSyncStatus] = useState(supabaseUrl ? "loading" : "not-configured");
+  const [cloudLoaded, setCloudLoaded] = useState(false);
   const [user, setUser] = useState(null);
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authMode, setAuthMode] = useState("signin");
   const [authMsg, setAuthMsg] = useState("");
-  const [authDismissed, setAuthDismissed] = useState(false);
+  const [authStep, setAuthStep] = useState("form"); // "form" or "verify"
+  const [verifyCode, setVerifyCode] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
   const [editAmount, setEditAmount] = useState("");
   const [editCategory, setEditCategory] = useState("Food");
   const [editDate, setEditDate] = useState("");
-  const [bills, setBills] = useState(loadBills);
+  const [bills, setBills] = useState([]);
   const [billTitle, setBillTitle] = useState("");
   const [billAmount, setBillAmount] = useState("");
   const [billDue, setBillDue] = useState(new Date().toISOString().slice(0, 10));
   const [showReport, setShowReport] = useState(false);
   const [importMsg, setImportMsg] = useState("");
-  const [closedMonths, setClosedMonths] = useState(() => loadList("closed_months_v1"));
+  const [closedMonths, setClosedMonths] = useState([]); // session only, not saved in Supabase yet
   const [pendingDuplicate, setPendingDuplicate] = useState(null);
-  const [history, setHistory] = useState(() => loadList("history_v1"));
+  const [history, setHistory] = useState([]); // session only
   const [quickAmount, setQuickAmount] = useState("");
   const [quickTitle, setQuickTitle] = useState("");
   const [quickCategory, setQuickCategory] = useState("Food");
 
-  const resetToBlankPersonal = () => {
+  const resetToBlank = () => {
     setExpenses([]); setBills([]); setSections([]);
     setMonthlyIncome(0); setSavingsGoal(0); setOpeningBalance(0);
     setClosedMonths([]); setHistory([]); setLastDeleted(null);
     setPendingDuplicate(null); setError("");
   };
-  const restoreGuestLocal = () => {
-    setExpenses(loadExpenses()); setBills(loadBills()); setSections(loadSections());
-    setMonthlyIncome(loadNumber("income_v2", 0)); setSavingsGoal(loadNumber("goal_v2", 0));
-    setOpeningBalance(loadNumber("opening_v1", 0));
-    setClosedMonths(loadList("closed_months_v1")); setHistory(loadList("history_v1"));
-  };
 
-  // Guest mode only: localStorage is the guest store.
-  // Signed-in mode: Supabase is the source of truth, do NOT
-  // overwrite the guest local data with personal data, or vice versa.
-  useEffect(() => { if (!user) saveSafe("expenses_v2", expenses); }, [expenses, user]);
-  useEffect(() => { if (!user) saveSafe("income_v2", monthlyIncome); }, [monthlyIncome, user]);
-  useEffect(() => { if (!user) saveSafe("goal_v2", savingsGoal); }, [savingsGoal, user]);
-  useEffect(() => { if (!user) saveSafe("opening_v1", openingBalance); }, [openingBalance, user]);
-  useEffect(() => { if (!user) saveSafe("custom_sections_v1", sections); }, [sections, user]);
-  useEffect(() => { if (!user) saveSafe("bills_v1", bills); }, [bills, user]);
-  useEffect(() => { if (!user) saveSafe("closed_months_v1", closedMonths); }, [closedMonths, user]);
-  useEffect(() => { if (!user) saveSafe("history_v1", history.slice(0, 50)); }, [history, user]);
+  // Only the dark/light theme lives in localStorage - it is a display
+  // setting, not your money data. All money data is in Supabase only.
   useEffect(() => { try { localStorage.setItem("theme_dark", darkMode ? "true" : "false"); } catch { } }, [darkMode]);
 
   useEffect(() => {
@@ -168,32 +124,64 @@ export default function App() {
     const client = await getSupabase();
     if (!client) { setAuthMsg("Supabase is not configured yet. Add .env keys first."); return; }
     setAuthMsg("");
-    const { data, error } = authMode === "signup"
-      ? await client.auth.signUp({ email: authEmail, password: authPassword })
-      : await client.auth.signInWithPassword({ email: authEmail, password: authPassword });
+    // Sign-in: email + password, straight in, no code needed.
+    if (authMode === "signin") {
+      const { data, error } = await client.auth.signInWithPassword({ email: authEmail, password: authPassword });
+      if (error) { setAuthMsg(error.message); return; }
+      if (data.user) {
+        resetToBlank();
+        setUser(data.user);
+        setAuthMsg("Signed in.");
+      }
+      return;
+    }
+    // Sign-up: create the account, Supabase emails a 6-digit code.
+    // The user is NOT signed in yet - they must enter the code first.
+    const { data, error } = await client.auth.signUp({ email: authEmail, password: authPassword });
     if (error) { setAuthMsg(error.message); return; }
     if (data.user) {
-      // Signed-in mode is NOT guest mode: start from a blank
-      // personal dashboard, never from guest local data.
-      // The load effect below then fills it with ONLY this
-      // user's Supabase rows. If they have none, it stays blank.
-      resetToBlankPersonal();
-      setUser(data.user);
-      if (authMode === "signup") {
-        const c = await getSupabase();
-        if (c) await c.schema(SUPABASE_SCHEMA).from("settings").upsert({ user_id: data.user.id, monthly_income: 0, savings_goal: 0, opening_balance: 0 }, { onConflict: "user_id" });
-      }
+      setVerifyCode("");
+      setAuthStep("verify");
+      setAuthMsg(`We sent a 6-digit code to ${authEmail}. Enter it below to verify your email.`);
+    } else {
+      setAuthMsg("Check your email to confirm, then sign in.");
     }
-    if (authMode === "signup") setAuthMsg("Check your email to confirm, then sign in.");
-    else setAuthMsg("Signed in.");
+  };
+  // Step 2 of sign-up: check the 6-digit code from the email.
+  const verifySignupCode = async (e) => {
+    e.preventDefault();
+    const client = await getSupabase();
+    if (!client) { setAuthMsg("Supabase is not configured yet."); return; }
+    const code = verifyCode.trim();
+    if (code.length !== 6) { setAuthMsg("That code should be 6 digits. Check your email again."); return; }
+    setAuthMsg("");
+    const { data, error } = await client.auth.verifyOtp({ email: authEmail, token: code, type: "signup" });
+    if (error) { setAuthMsg(error.message); return; }
+    const verifiedUser = data.user || data.session?.user;
+    if (verifiedUser) {
+      resetToBlank();
+      setUser(verifiedUser);
+      const c = await getSupabase();
+      if (c) await c.schema(SUPABASE_SCHEMA).from("settings").upsert({ user_id: verifiedUser.id, monthly_income: 0, savings_goal: 0, opening_balance: 0 }, { onConflict: "user_id" });
+      setAuthStep("form");
+      setVerifyCode("");
+      setAuthMsg("Email verified. Welcome!");
+    }
+  };
+  const resendSignupCode = async () => {
+    const client = await getSupabase();
+    if (!client) { setAuthMsg("Supabase is not configured yet."); return; }
+    const { error } = await client.auth.resend({ type: "signup", email: authEmail });
+    if (error) setAuthMsg(error.message);
+    else setAuthMsg(`Sent a new code to ${authEmail}. Check your inbox and spam.`);
   };
   const signOut = async () => {
     const client = await getSupabase();
     if (client) await client.auth.signOut();
     setUser(null);
-    // Back to guest mode: show the local guest data again,
-    // not the personal data you just signed out of.
-    restoreGuestLocal();
+    resetToBlank();
+    setCloudLoaded(false);
+    setSyncStatus(supabaseUrl ? "loading" : "not-configured");
   };
 
   // Supabase load: only for the logged-in user, in expense_dashboard schema
@@ -209,14 +197,13 @@ export default function App() {
         db.from("expenses").select("*").eq("user_id", user.id).order("date", { ascending: false }),
         db.from("bills").select("*").eq("user_id", user.id).order("due_date", { ascending: true }),
         db.from("sections").select("*").eq("user_id", user.id).order("id", { ascending: true }),
-        db.from("section_items").select("*").order("section_id", { ascending: true }).order("position", { ascending: true }),
+        db.from("section_items").select("*").eq("user_id", user.id).order("section_id", { ascending: true }).order("position", { ascending: true }),
         db.from("settings").select("*").eq("user_id", user.id).maybeSingle(),
       ]);
       if (cancelled) return;
-      if (expRes.error || billRes.error || secRes.error) { setSyncStatus("error"); return; }
-      // Signed-in mode replaces the view completely, even with
-      // empty results. A new user with no rows gets a blank
-      // personal dashboard, NOT the guest local data.
+      if (expRes.error || billRes.error || secRes.error) { setSyncStatus("error"); setCloudLoaded(false); return; }
+      // This load replaces the view completely, even with
+      // empty results. A new user with no rows gets a blank dashboard.
       setExpenses((expRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), category: r.category || "Other", date: r.date })));
       setBills((billRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), dueDate: r.due_date, paid: !!r.paid })));
       const itemsBySection = {};
@@ -230,6 +217,7 @@ export default function App() {
       setOpeningBalance(setRes.data && setRes.data.opening_balance ? Number(setRes.data.opening_balance) : 0);
       setClosedMonths([]);
       setSyncStatus("synced");
+      setCloudLoaded(true);
     })();
     return () => { cancelled = true; };
   }, [user]);
@@ -237,7 +225,7 @@ export default function App() {
   const syncNow = async () => {
     const client = await getSupabase();
     if (!client) { alert("Supabase is not set up yet. Run supabase-schema.sql, add .env keys, run npm install @supabase/supabase-js, and restart."); return; }
-    if (!user) { alert("Sign in first to sync. Your data is private to your account."); return; }
+    if (!user) { alert("Sign in first. Your data lives in Supabase under your account only."); return; }
     setSyncStatus("syncing");
     const db = client.schema(SUPABASE_SCHEMA);
     await db.from("expenses").delete().eq("user_id", user.id);
@@ -262,6 +250,42 @@ export default function App() {
     }
     setSyncStatus("synced");
   };
+
+  // Save bills, sections and settings to Supabase. Expenses are saved
+  // per-item by syncInsert / syncDelete / syncUpdate, so this does not touch them.
+  const saveCloudMeta = async () => {
+    const client = await getSupabase();
+    if (!client || !user) return false;
+    setSyncStatus("saving");
+    const db = client.schema(SUPABASE_SCHEMA);
+    const { error: setErr } = await db.from("settings").upsert({ user_id: user.id, monthly_income: monthlyIncome, savings_goal: savingsGoal, opening_balance: openingBalance }, { onConflict: "user_id" });
+    if (setErr) { setSyncStatus("error"); return false; }
+    await db.from("bills").delete().eq("user_id", user.id);
+    const billPayload = bills.map((b) => ({ user_id: user.id, title: b.title, amount: b.amount, due_date: b.dueDate, paid: !!b.paid }));
+    if (billPayload.length > 0) { const { error: billErr } = await db.from("bills").insert(billPayload); if (billErr) { setSyncStatus("error"); return false; } }
+    await db.from("section_items").delete().eq("user_id", user.id);
+    await db.from("sections").delete().eq("user_id", user.id);
+    for (const section of sections) {
+      const { data: secData, error: secErr } = await db.from("sections").insert({ user_id: user.id, title: section.title }).select("id").single();
+      if (secErr || !secData) { setSyncStatus("error"); return false; }
+      if (section.items.length > 0) {
+        const itemPayload = section.items.map((item, idx) => ({ section_id: secData.id, user_id: user.id, name: item.name, amount: Number(item.amount) || 0, note: item.note || "", position: idx }));
+        await db.from("section_items").insert(itemPayload);
+      }
+    }
+    setSyncStatus("synced");
+    return true;
+  };
+  // Auto-save: after the cloud load finishes, any change to bills,
+  // sections, income or goal is saved to Supabase automatically,
+  // 800ms after you stop changing it. No Sync button needed.
+  useEffect(() => {
+    if (!user || !cloudLoaded) return;
+    const t = setTimeout(() => { saveCloudMeta(); }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bills, sections, monthlyIncome, savingsGoal, openingBalance, user, cloudLoaded]);
+
   const syncInsert = async (expense) => {
     const client = await getSupabase(); if (!client || !user) return;
     await client.schema(SUPABASE_SCHEMA).from("expenses").insert({ user_id: user.id, title: expense.title, amount: expense.amount, category: expense.category, date: expense.date });
@@ -348,6 +372,7 @@ export default function App() {
     if (due.length === 0) { setImportMsg("No unpaid bills are due yet."); return; }
     const newExps = due.map((b) => ({ id: Date.now() + Math.random(), title: b.title, amount: Number(b.amount), category: "Housing", date: todayStr }));
     setExpenses((prev) => [...newExps, ...prev]);
+    newExps.forEach((e) => syncInsert(e));
     setBills((prev) => prev.map((b) => (due.find((d) => d.id === b.id) ? { ...b, paid: true } : b)));
     logHistory("Bills added as expenses", `${due.length} bills, $${due.reduce((s, b) => s + Number(b.amount), 0).toFixed(2)}`);
     setImportMsg(`Added ${due.length} due bills as expenses and marked them paid.`);
@@ -450,8 +475,8 @@ export default function App() {
       if (!amt || amt <= 0) return;
       rows.push({ id: Date.now() + Math.random(), title: parts[0] || "Imported", amount: amt, category: categories.includes(parts[2]) ? parts[2] : "Other", date: parts[3] || new Date().toISOString().slice(0, 10) });
     });
-    if (rows.length) setExpenses((prev) => [...rows, ...prev]);
-    setImportMsg(rows.length ? `Imported ${rows.length} real expenses from CSV. Check them against your bank balance below.` : "No valid rows found in that CSV.");
+    if (rows.length) { setExpenses((prev) => [...rows, ...prev]); rows.forEach((r) => syncInsert(r)); }
+    setImportMsg(rows.length ? `Imported ${rows.length} real expenses from CSV.` : "No valid rows found in that CSV.");
     ev.target.value = "";
   };
   const backupJSON = () => {
@@ -468,7 +493,16 @@ export default function App() {
     if (!file) return;
     try {
       const data = JSON.parse(await file.text());
-      if (Array.isArray(data.expenses)) setExpenses(data.expenses);
+      if (Array.isArray(data.expenses)) {
+        setExpenses(data.expenses);
+        const client = await getSupabase();
+        if (client && user) {
+          const db = client.schema(SUPABASE_SCHEMA);
+          await db.from("expenses").delete().eq("user_id", user.id);
+          const payload = data.expenses.map((e) => ({ user_id: user.id, title: e.title, amount: e.amount, category: e.category || "Other", date: e.date }));
+          if (payload.length > 0) await db.from("expenses").insert(payload);
+        }
+      }
       if (Array.isArray(data.sections)) setSections(data.sections);
       if (Array.isArray(data.bills)) setBills(data.bills);
       if (data.monthlyIncome) setMonthlyIncome(Number(data.monthlyIncome));
@@ -478,9 +512,17 @@ export default function App() {
     } catch { setImportMsg("That backup file could not be read."); }
     ev.target.value = "";
   };
-  const resetAll = () => {
-    if (!window.confirm("Start blank again? This clears all your real expenses, bills and sections.")) return;
+  const resetAll = async () => {
+    if (!window.confirm("Start blank again? This clears all your real expenses, bills and sections in Supabase.")) return;
     setExpenses([]); setBills([]); setSections([]); setClosedMonths([]); setLastDeleted(null);
+    const client = await getSupabase();
+    if (client && user) {
+      const db = client.schema(SUPABASE_SCHEMA);
+      await db.from("expenses").delete().eq("user_id", user.id);
+      await db.from("bills").delete().eq("user_id", user.id);
+      await db.from("section_items").delete().eq("user_id", user.id);
+      await db.from("sections").delete().eq("user_id", user.id);
+    }
     logHistory("Reset", "Started blank again");
   };
   const closeMonth = () => {
@@ -530,15 +572,82 @@ export default function App() {
   };
   const sectionTotals = sections.map((s) => ({ title: s.title, total: sectionTotal(s) }));
 
+  // SUPABASE ONLY: the dashboard lives behind the login screen.
+  // Features are hardcoded in this file, Supabase only stores the data.
+  if (!user) {
+    return (
+      <div className={`app login-page ${darkMode ? "dark" : ""}`}>
+        <div className="login-top">
+          <div className="login-logo">
+            <span className="login-logo-icon"><Wallet size={20} /></span>
+            Money Dashboard
+          </div>
+          <button className="small-ghost-btn" onClick={() => setDarkMode(!darkMode)}>{darkMode ? <Sun size={15} /> : <Moon size={15} />} {darkMode ? "Light mode" : "Dark mode"}</button>
+        </div>
+        <div className="login-wrap">
+          <div className="login-brand">
+            <h2>Your money, tracked monthly.</h2>
+            <p>Note down what you spend, see where it goes, and finish the month knowing your real numbers.</p>
+            <div className="login-features">
+              <div className="login-feature"><TrendingUp size={18} /> Charts and budgets for every category</div>
+              <div className="login-feature"><CalendarDays size={18} /> Bills and due dates, with reminders</div>
+              <div className="login-feature"><PiggyBank size={18} /> Savings goal, tracked to 100%</div>
+              <div className="login-feature"><ShieldCheck size={18} /> Private - only your account can see it</div>
+            </div>
+          </div>
+          <div className="login-card">
+            {authStep === "verify" ? (
+              <>
+                <h2>Check your email</h2>
+                <p>We sent a 6-digit code to <strong>{authEmail}</strong>. Enter it below to verify your email and finish signing up.</p>
+                <form onSubmit={verifySignupCode} className="login-form">
+                  <div className="login-field">
+                    <label htmlFor="verify-code">6-digit code</label>
+                    <input id="verify-code" type="text" inputMode="numeric" maxLength={6} value={verifyCode} onChange={(e) => setVerifyCode(e.target.value.replace(/[^0-9]/g, ""))} placeholder="123456" required />
+                  </div>
+                  {authMsg && <div className="form-error">{authMsg}</div>}
+                  <button type="submit" className="login-submit"><ShieldCheck size={16} /> Verify code</button>
+                </form>
+                <button type="button" className="login-toggle" onClick={resendSignupCode}>Didn't get it? Send a new code</button>
+                <button type="button" className="login-toggle" onClick={() => { setAuthStep("form"); setAuthMode("signin"); setAuthMsg(""); }}>Back to sign in</button>
+              </>
+            ) : (
+              <>
+                <h2>{authMode === "signup" ? "Create your account" : "Welcome back"}</h2>
+                <p>{authMode === "signup" ? "Sign up once, then we will email you a 6-digit code to verify your email." : "Sign in to see your expenses and add new ones."}</p>
+                {!supabaseUrl && <div className="form-error">Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file, run npm install @supabase/supabase-js, and restart npm run dev.</div>}
+                <form onSubmit={signInOrUp} className="login-form">
+                  <div className="login-field">
+                    <label htmlFor="login-email">Email</label>
+                    <input id="login-email" type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="you@example.com" required />
+                  </div>
+                  <div className="login-field">
+                    <label htmlFor="login-password">Password</label>
+                    <input id="login-password" type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder="Your password" required />
+                  </div>
+                  {authMsg && <div className="form-error">{authMsg}</div>}
+                  <button type="submit" className="login-submit"><LogIn size={16} /> {authMode === "signup" ? "Sign up" : "Sign in"}</button>
+                </form>
+                <button type="button" className="login-toggle" onClick={() => setAuthMode(authMode === "signup" ? "signin" : "signup")}>{authMode === "signup" ? "Have an account? Sign in" : "No account? Sign up"}</button>
+              </>
+            )}
+            <p className="login-note"><Lock size={13} /> Your data lives in Supabase only, under your account. Nothing is stored on this device.</p>
+          </div>
+        </div>
+        <div className="login-foot">Money Dashboard - a monthly expense tracker</div>
+      </div>
+    );
+  }
+
   return (
     <div className={`app ${darkMode ? "dark" : ""}`}>
       <header>
         <div className="header-top">
           <div>
             <h1>Money Dashboard</h1>
-            <p>{user ? (expenses.length === 0 ? `Welcome, ${user.email} - your personal dashboard is empty, start with your real numbers` : `Welcome back, ${user.email} - ${daysLeft} days left this month - Projected spend: $${projected}`) : (expenses.length === 0 ? "Guest mode - start blank, add your first real expense below" : `${daysLeft} days left this month - Projected spend: $${projected}`)}</p>
+            <p>{expenses.length === 0 ? `Welcome, ${user.email} - your dashboard is empty, start with your real numbers` : `Welcome back, ${user.email} - ${daysLeft} days left this month - Projected spend: $${projected}`}</p>
           </div>
-          <div className="badge">{user ? `Signed in: ${user.email}` : syncStatus === "local-only" ? "Local only" : `Sync: ${syncStatus}`}</div>
+          <div className="badge">Signed in: {user.email} - Supabase: {syncStatus}</div>
         </div>
         <div className="settings-row">
           <label>Income $ <input type="number" value={monthlyIncome} onChange={(e) => setMonthlyIncome(Number(e.target.value) || 0)} /></label>
@@ -546,31 +655,16 @@ export default function App() {
           <button className="white-btn" onClick={exportCSV}><Download size={15} /> Export CSV</button>
           <button className="white-btn" onClick={resetAll}><RotateCcw size={15} /> Start Blank</button>
           <button className="white-btn" onClick={() => setDarkMode(!darkMode)}>{darkMode ? <Sun size={15} /> : <Moon size={15} />} {darkMode ? "Light mode" : "Dark mode"}</button>
-          <button className="white-btn" onClick={syncNow}>Sync: {syncStatus}</button>
+          <button className="white-btn" onClick={syncNow}>Save to Supabase</button>
           {user && <button className="white-btn" onClick={signOut}><LogOut size={15} /> Sign out</button>}
         </div>
       </header>
 
-      {supabaseUrl && !user && !authDismissed && (
-        <div className="card auth-card">
-          <h3><ShieldCheck size={18} /> Sign in to make it private and real</h3>
-          <p style={{ color: "#64748b" }}>Your data will be saved under your account only, in the expense_dashboard schema. Without sign-in it stays local only.</p>
-          <form onSubmit={signInOrUp} className="auth-form">
-            <input type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="Email" required />
-            <input type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder="Password" required />
-            <button type="submit"><LogIn size={15} /> {authMode === "signup" ? "Sign up" : "Sign in"}</button>
-            <button type="button" className="small-ghost-btn" onClick={() => setAuthMode(authMode === "signup" ? "signin" : "signup")}>{authMode === "signup" ? "Have an account? Sign in" : "No account? Sign up"}</button>
-            <button type="button" className="small-ghost-btn" onClick={() => setAuthDismissed(true)}>Continue locally for now</button>
-          </form>
-          {authMsg && <p style={{ color: "#dc2626" }}>{authMsg}</p>}
-        </div>
-      )}
-
       {expenses.length === 0 && (
         <div className="card empty-state">
           <div className="empty-icon"><Sparkles size={26} /></div>
-          <h3>{user ? "Welcome to your dashboard" : "Your money, from scratch"}</h3>
-          <p>{user ? "This is yours only. No guest data, no prebuilt stuff. Just your real numbers, when you are ready." : "No fake data here. Just your real numbers, when you are ready."}</p>
+          <h3>Your money, from scratch</h3>
+          <p>This is yours only. No prebuilt stuff. Just your real numbers, when you are ready.</p>
           <div className="empty-steps">
             <div><span>1</span> Set your real income above</div>
             <div><span>2</span> Add your first expense below, or import your bank CSV</div>
@@ -901,7 +995,7 @@ export default function App() {
           <button onClick={() => setShowReport(!showReport)}><Printer size={15} /> {showReport ? "Hide Report" : "Monthly Report"}</button>
         </div>
         {importMsg && <div className="import-msg">{importMsg}</div>}
-        {!supabaseUrl && <p className="tools-note">Supabase not configured, so your data is local only for now. Add your .env keys to sync.</p>}
+        <p className="tools-note">Everything is saved in Supabase under your account only.</p>
       </div>
 
       {showReport && (
