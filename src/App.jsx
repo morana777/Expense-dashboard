@@ -137,7 +137,11 @@ export default function App() {
     }
     // Sign-up: create the account, Supabase emails a 6-digit code.
     // The user is NOT signed in yet - they must enter the code first.
-    const { data, error } = await client.auth.signUp({ email: authEmail, password: authPassword });
+    // Tag this account with the app it signed up from, so in Supabase
+    // Authentication > Users you can tell it came from the expense
+    // dashboard, not your other projects that share this Supabase project.
+    // Click a user there, then look at User Metadata: app = "expense-dashboard".
+    const { data, error } = await client.auth.signUp({ email: authEmail, password: authPassword, options: { data: { app: "expense-dashboard" } } });
     if (error) { setAuthMsg(error.message); return; }
     if (data.user) {
       setVerifyCode("");
