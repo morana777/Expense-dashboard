@@ -62,6 +62,16 @@ export default function App() {
     const msg = err && err.message ? err.message : "Unknown Supabase error";
     setSyncError(msg); setSyncStatus("error"); console.error("Supabase error:", err);
   };
+  // Save the user's settings row without upsert/onConflict.
+  // onConflict needs a unique constraint on user_id, and the live
+  // settings table (old v1, id = 1 as primary key) does not have one,
+  // which is what caused "no unique or exclusion constraint matching
+  // the ON CONFLICT specification". Update if the row exists, else insert.
+  const saveSettingsRow = async (db, uid, values) => {
+    const { data: existing } = await db.from("settings").select("user_id").eq("user_id", uid).maybeSingle();
+    if (existing) return await db.from("settings").update(values).eq("user_id", uid);
+    return await db.from("settings").insert({ user_id: uid, ...values });
+  };
   const [cloudLoaded, setCloudLoaded] = useState(false);
   const [user, setUser] = useState(null);
   const [authEmail, setAuthEmail] = useState("");
@@ -178,7 +188,7 @@ export default function App() {
       resetToBlank();
       setUser(verifiedUser);
       const c = await getSupabase();
-      if (c) await c.schema(SUPABASE_SCHEMA).from("settings").upsert({ user_id: verifiedUser.id, monthly_income: 0, savings_goal: 0, opening_balance: 0 }, { onConflict: "user_id" });
+      if (c) await saveSettingsRow(c.schema(SUPABASE_SCHEMA), verifiedUser.id, { monthly_income: 0, savings_goal: 0, opening_balance: 0 });
       setAuthStep("form");
       setVerifyCode("");
       setAuthMsg("Email verified. Welcome!");
@@ -254,7 +264,7 @@ export default function App() {
     const billPayload = bills.map((b) => ({ user_id: user.id, title: b.title, amount: b.amount, due_date: b.dueDate, paid: !!b.paid }));
     const { error: billErr } = await db.from("bills").insert(billPayload);
     if (billErr) { failSync(billErr); return; }
-    const { error: setErr } = await db.from("settings").upsert({ user_id: user.id, monthly_income: monthlyIncome, savings_goal: savingsGoal, opening_balance: openingBalance }, { onConflict: "user_id" });
+    const { error: setErr } = await saveSettingsRow(db, user.id, { monthly_income: monthlyIncome, savings_goal: savingsGoal, opening_balance: openingBalance });
     if (setErr) { failSync(setErr); return; }
     await db.from("section_items").delete().neq("id", 0);
     await db.from("sections").delete().eq("user_id", user.id);
@@ -276,7 +286,7 @@ export default function App() {
     if (!client || !user) return false;
     setSyncStatus("saving");
     const db = client.schema(SUPABASE_SCHEMA);
-    const { error: setErr } = await db.from("settings").upsert({ user_id: user.id, monthly_income: monthlyIncome, savings_goal: savingsGoal, opening_balance: openingBalance }, { onConflict: "user_id" });
+    const { error: setErr } = await saveSettingsRow(db, user.id, { monthly_income: monthlyIncome, savings_goal: savingsGoal, opening_balance: openingBalance });
     if (setErr) { failSync(setErr); return false; }
     await db.from("bills").delete().eq("user_id", user.id);
     const billPayload = bills.map((b) => ({ user_id: user.id, title: b.title, amount: b.amount, due_date: b.dueDate, paid: !!b.paid }));
