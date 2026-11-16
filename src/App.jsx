@@ -370,6 +370,13 @@ export default function App() {
     return list;
   }, [monthExpenses, search, filter, sortBy]);
 
+  // Two boxes: Fixed repeats every month, Flexible is one-off.
+  const isFixedExpense = (e) => e.frequency && e.frequency !== "One-time";
+  const fixedList = filtered.filter(isFixedExpense);
+  const flexList = filtered.filter((e) => !isFixedExpense(e));
+  const fixedTotal = fixedList.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const flexTotal = flexList.reduce((s, e) => s + Number(e.amount || 0), 0);
+
   const monthlyData = [
     { month: "Jun", spent: 0, income: monthlyIncome },
     { month: "Jul", spent: 0, income: monthlyIncome },
@@ -409,7 +416,7 @@ export default function App() {
     setImportMsg(`Added ${due.length} due bills as expenses and marked them paid.`);
   };
 
-  const heatMonth = monthFilter !== "All" ? monthFilter : "2026-11";
+  const heatMonth = new Date().toISOString().slice(0, 7);
   const [heatYear, heatMon] = heatMonth.split("-").map(Number);
   const heatDays = new Date(heatYear, heatMon, 0).getDate();
   const heatFirst = new Date(heatYear, heatMon - 1, 1).getDay();
@@ -671,6 +678,37 @@ export default function App() {
     );
   }
 
+  // One transaction row, used by both the Fixed and the Flexible box.
+  const expenseRow = (e) => (
+    <div key={e.id} className="row" style={{ alignItems: "flex-start" }}>
+      {editingId === e.id ? (
+        <div className="edit-row">
+          <input value={editTitle} onChange={(ev) => setEditTitle(ev.target.value)} placeholder="Title" />
+          <input type="number" step="0.01" value={editAmount} onChange={(ev) => setEditAmount(ev.target.value)} placeholder="Amount" />
+          <select value={editCategory} onChange={(ev) => setEditCategory(ev.target.value)}>{categories.map((c) => <option key={c}>{c}</option>)}</select>
+          <select value={editFrequency} onChange={(ev) => setEditFrequency(ev.target.value)}>{frequencies.map((f) => <option key={f}>{f}</option>)}</select>
+          <input type="date" value={editDate} onChange={(ev) => setEditDate(ev.target.value)} />
+          <div className="edit-actions">
+            <button onClick={saveEdit}>Save</button>
+            <button className="small-ghost-btn" onClick={() => setEditingId(null)}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div>
+            <strong>{e.title} {titleCounts[e.title] > 1 && <span className="cat-pill" style={{ background: "#fef3c7", color: "#92400e" }}>Recurring</span>}</strong>
+            <span><span className="cat-pill">{e.category}</span>{e.frequency && e.frequency !== "One-time" && <span className="cat-pill" style={{ background: "#ede9fe", color: "#6d28d9" }}>{e.frequency}</span>}{e.date}</span>
+          </div>
+          <div className="row-right">
+            <strong>${e.amount.toFixed(2)}</strong>
+            <button className="edit-btn" onClick={() => startEdit(e)}><Pencil size={15} /></button>
+            <button onClick={() => deleteExpense(e.id)}><Trash2 size={16} /></button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   return (
     <div className={`app ${darkMode ? "dark" : ""}`}>
       <header>
@@ -761,11 +799,10 @@ export default function App() {
           <select value={frequency} onChange={(e) => setFrequency(e.target.value)} title="How often does this repeat?">{frequencies.map((f) => <option key={f}>{f}</option>)}</select>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} title="Start date - which month this belongs to" />
           <button type="submit">Add Expense</button>
-          <small style={{ color: "#64748b" }}>Tip: the date is the start date - pick a repeat like Monthly, Weekly or Biweekly for bills that come back.</small>
+          <small style={{ color: "#64748b" }}>Pick a repeat - Monthly, Weekly or Biweekly goes in the Fixed box, One-time goes in the Flexible box. The date is the start date.</small>
         </form>
-
         <div className="card">
-          <h3>Transactions <small>{filtered.length} shown - click Edit to fix one</small></h3>
+          <h3>Your spending <small>{filtered.length} shown - search and sort apply to both boxes below</small></h3>
           <div className="toolbar">
             <div className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." /></div>
             <select value={filter} onChange={(e) => setFilter(e.target.value)}><option>All</option>{categories.map((c) => <option key={c}>{c}</option>)}</select>
@@ -773,36 +810,23 @@ export default function App() {
               <option value="newest">Newest</option><option value="oldest">Oldest</option><option value="highest">Highest $</option><option value="lowest">Lowest $</option>
             </select>
           </div>
-          {filtered.length === 0 && <p style={{ color: "#64748b" }}>No transactions yet. Add your first real one above.</p>}
-          {filtered.map((e) => (
-            <div key={e.id} className="row" style={{ alignItems: "flex-start" }}>
-              {editingId === e.id ? (
-                <div className="edit-row">
-                  <input value={editTitle} onChange={(ev) => setEditTitle(ev.target.value)} placeholder="Title" />
-                  <input type="number" step="0.01" value={editAmount} onChange={(ev) => setEditAmount(ev.target.value)} placeholder="Amount" />
-                  <select value={editCategory} onChange={(ev) => setEditCategory(ev.target.value)}>{categories.map((c) => <option key={c}>{c}</option>)}</select>
-                  <select value={editFrequency} onChange={(ev) => setEditFrequency(ev.target.value)}>{frequencies.map((f) => <option key={f}>{f}</option>)}</select>
-                  <input type="date" value={editDate} onChange={(ev) => setEditDate(ev.target.value)} />
-                  <div className="edit-actions">
-                    <button onClick={saveEdit}>Save</button>
-                    <button className="small-ghost-btn" onClick={() => setEditingId(null)}>Cancel</button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <strong>{e.title} {titleCounts[e.title] > 1 && <span className="cat-pill" style={{ background: "#fef3c7", color: "#92400e" }}>Recurring</span>}</strong>
-                    <span><span className="cat-pill">{e.category}</span>{e.frequency && e.frequency !== "One-time" && <span className="cat-pill" style={{ background: "#ede9fe", color: "#6d28d9" }}>{e.frequency}</span>}{e.date}</span>
-                  </div>
-                  <div className="row-right">
-                    <strong>${e.amount.toFixed(2)}</strong>
-                    <button className="edit-btn" onClick={() => startEdit(e)}><Pencil size={15} /></button>
-                    <button onClick={() => deleteExpense(e.id)}><Trash2 size={16} /></button>
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
+          <p className="box-note">Fixed repeats every month - rent, transport, bills. Flexible is one-off - an extra product, a treat, anything that is not fixed.</p>
+          <div className="box-total">Fixed: ${fixedTotal.toFixed(2)} / month &nbsp;•&nbsp; Flexible total: ${flexTotal.toFixed(2)}</div>
+        </div>
+      </div>
+
+      <div className="two-boxes">
+        <div className="card fixed-box">
+          <h3>Fixed - every month <small>{fixedList.length} expenses - ${fixedTotal.toFixed(2)} a month</small></h3>
+          <p className="box-note">Rent, transport, bills - the ones that come back every month.</p>
+          {fixedList.length === 0 && <p style={{ color: "#64748b" }}>No fixed expenses yet. Add one above and pick Monthly, Weekly or Biweekly as the repeat.</p>}
+          {fixedList.map(expenseRow)}
+        </div>
+        <div className="card flex-box">
+          <h3>Flexible - one-off <small>{flexList.length} expenses - ${flexTotal.toFixed(2)}</small></h3>
+          <p className="box-note">One-off buys and extra things - anything that is not fixed.</p>
+          {flexList.length === 0 && <p style={{ color: "#64748b" }}>No flexible expenses yet. Add one above and leave the repeat as One-time.</p>}
+          {flexList.map(expenseRow)}
         </div>
       </div>
 
@@ -888,27 +912,6 @@ export default function App() {
         })}
       </div>
 
-      <div className="card calc-card">
-        <div className="calc-row">
-          <div className="calc-field">
-            <label htmlFor="calc-month">Calculation month</label>
-            <input id="calc-month" type="month" value={monthFilter === "All" ? "" : monthFilter} onChange={(e) => setMonthFilter(e.target.value || "All")} />
-          </div>
-          {monthFilter !== "All" && (
-            currentMonthClosed
-              ? <button className="pill done-btn" onClick={reopenMonth}><Check size={14} /> {monthFilter} done - Reopen</button>
-              : <button className="pill" onClick={closeMonth}><Lock size={14} /> I&apos;m done with {monthFilter} - Mark done</button>
-          )}
-          {monthFilter !== "All" && <button className="pill" onClick={() => setMonthFilter("All")}>Back to All months</button>}
-        </div>
-        <p className="calc-note">{monthFilter === "All" ? "Showing all months together. Pick a month above to calculate just that month." : currentMonthClosed ? `${monthFilter} is done and locked. You cannot add, edit or delete expenses in it until you reopen it.` : `Calculating ${monthFilter} only - stats, charts and transactions below are for this month.`}</p>
-        <div className="month-pills">
-          {months.map((m) => (
-            <button key={m} className={monthFilter === m ? "pill active" : "pill"} onClick={() => setMonthFilter(m)}>{m === "All" ? "All months" : m}{closedMonths.includes(m) ? " ✓" : ""}</button>
-          ))}
-        </div>
-      </div>
-
       <div className="charts">
         <div className="card">
           <h3>Spending Trend <small>Income vs spent</small></h3>
@@ -978,53 +981,25 @@ export default function App() {
         </div>
       </div>
 
-      <div className="charts-2">
-        <div className="card">
-          <h3><CalendarDays size={18} /> Bills &amp; Due Dates <small>Unpaid total: ${unpaidTotal.toFixed(2)}</small></h3>
-          <form onSubmit={addBill} className="bill-form">
-            <input value={billTitle} onChange={(e) => setBillTitle(e.target.value)} placeholder="Bill, e.g. Rent" />
-            <input type="number" step="0.01" value={billAmount} onChange={(e) => setBillAmount(e.target.value)} placeholder="$" />
-            <input type="date" value={billDue} onChange={(e) => setBillDue(e.target.value)} />
-            <button type="submit">Add Bill</button>
-          </form>
-          <button className="small-ghost-btn" onClick={addDueBillsAsExpenses} style={{ marginBottom: 12 }}>Add due bills as expenses</button>
-          {sortedBills.length === 0 && <p style={{ color: "#64748b" }}>No bills yet. Add your real rent, Netflix, bus pass, etc.</p>}
-          {sortedBills.map((b) => {
-            const d = daysUntil(b.dueDate);
-            return (
-              <div key={b.id} className={`bill-row ${b.paid ? "paid" : ""}`}>
-                <button className="bill-check" onClick={() => toggleBill(b.id)}>{b.paid ? <Check size={16} /> : null}</button>
-                <div className="bill-info">
-                  <strong style={{ textDecoration: b.paid ? "line-through" : "none" }}>{b.title}</strong>
-                  <span>{b.paid ? "Paid" : d < 0 ? `Overdue by ${Math.abs(d)} days` : d === 0 ? "Due today" : `Due in ${d} days`} - {b.dueDate}</span>
+      <div className="card">
+        <h3>Daily Spending - {heatMonth} <small>Darker = spent more that day</small></h3>
+        {expenses.length === 0 ? <p style={{ color: "#64748b" }}>No data yet.</p> : (
+          <div className="heatmap">
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="heat-head">{d}</div>)}
+            {Array.from({ length: heatFirst }).map((_, i) => <div key={`blank-${i}`} className="heat-day blank" />)}
+            {Array.from({ length: heatDays }).map((_, i) => {
+              const day = i + 1;
+              const amt = heatTotals[day] || 0;
+              return (
+                <div key={day} className={`heat-day heat-${heatLevel(amt)}`} title={`${heatMonth}-${String(day).padStart(2, "0")}: $${amt.toFixed(2)}`}>
+                  <span>{day}</span>
+                  {amt > 0 && <small>${Math.round(amt)}</small>}
                 </div>
-                <strong>${Number(b.amount).toFixed(2)}</strong>
-                <button className="bill-delete" onClick={() => deleteBill(b.id)}><Trash2 size={15} /></button>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="card">
-          <h3>Daily Spending - {heatMonth} <small>Darker = spent more that day</small></h3>
-          {expenses.length === 0 ? <p style={{ color: "#64748b" }}>No data yet.</p> : (
-            <div className="heatmap">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="heat-head">{d}</div>)}
-              {Array.from({ length: heatFirst }).map((_, i) => <div key={`blank-${i}`} className="heat-day blank" />)}
-              {Array.from({ length: heatDays }).map((_, i) => {
-                const day = i + 1;
-                const amt = heatTotals[day] || 0;
-                return (
-                  <div key={day} className={`heat-day heat-${heatLevel(amt)}`} title={`${heatMonth}-${String(day).padStart(2, "0")}: $${amt.toFixed(2)}`}>
-                    <span>{day}</span>
-                    {amt > 0 && <small>${Math.round(amt)}</small>}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <p style={{ color: "#64748b", fontSize: 13 }}>Tip: change the month pills above to see a different month's heatmap.</p>
-        </div>
+              );
+            })}
+          </div>
+        )}
+        <p style={{ color: "#64748b", fontSize: 13 }}>Daily spending for this month.</p>
       </div>
 
       <div className="card data-tools-card">
