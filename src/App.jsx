@@ -48,6 +48,7 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [monthFilter, setMonthFilter] = useState("All");
+  const [liveNow, setLiveNow] = useState(new Date());
   const [sortBy, setSortBy] = useState("newest");
   const [error, setError] = useState("");
   const [lastDeleted, setLastDeleted] = useState(null);
@@ -91,6 +92,11 @@ export default function App() {
   // Only the dark/light theme lives in localStorage - it is a display
   // setting, not your money data. All money data is in Supabase only.
   useEffect(() => { try { localStorage.setItem("theme_dark", darkMode ? "true" : "false"); } catch { } }, [darkMode]);
+  // Real-time date and time, ticks every second.
+  useEffect(() => {
+    const t = setInterval(() => setLiveNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     if (!lastDeleted) return;
@@ -328,7 +334,7 @@ export default function App() {
   const overBudget = categories.filter((c) => (byCategory.find((x) => x.name === c)?.value || 0) > budgets[c]);
   const titleCounts = {};
   expenses.forEach((e) => { titleCounts[e.title] = (titleCounts[e.title] || 0) + 1; });
-  const months = ["All", ...new Set(expenses.map((e) => e.date.slice(0, 7)))];
+  const months = ["All", ...new Set([...expenses.map((e) => e.date.slice(0, 7)), ...(monthFilter !== "All" ? [monthFilter] : [])])];
 
   const filtered = useMemo(() => {
     let list = monthExpenses.filter((e) => {
@@ -530,12 +536,13 @@ export default function App() {
     logHistory("Reset", "Started blank again");
   };
   const closeMonth = () => {
-    if (monthFilter === "All") { setError("Pick a month pill first, then close it."); return; }
-    if (!closedMonths.includes(monthFilter)) setClosedMonths((prev) => [...prev, monthFilter]);
+    if (monthFilter === "All") { setError("Pick a calculation month first, then mark it done."); return; }
+    if (!closedMonths.includes(monthFilter)) { setClosedMonths((prev) => [...prev, monthFilter]); logHistory("Month done", `${monthFilter} marked as done and locked`); }
   };
   const reopenMonth = () => {
     if (monthFilter === "All") return;
     setClosedMonths((prev) => prev.filter((m) => m !== monthFilter));
+    logHistory("Month reopened", `${monthFilter} reopened for editing`);
   };
 
   const sectionTotal = (section) => section.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
@@ -650,6 +657,7 @@ export default function App() {
           <div>
             <h1>Money Dashboard</h1>
             <p>{expenses.length === 0 ? `Welcome, ${user.email} - your dashboard is empty, start with your real numbers` : `Welcome back, ${user.email} - ${daysLeft} days left this month - Projected spend: $${projected}`}</p>
+            <p className="live-date">{liveNow.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} - {liveNow.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</p>
           </div>
           <div className="badge">Signed in: {user.email} - Supabase: {syncStatus}</div>
         </div>
@@ -763,15 +771,107 @@ export default function App() {
         </div>
       </div>
 
-      <div className="month-pills">
-        {months.map((m) => (
-          <button key={m} className={monthFilter === m ? "pill active" : "pill"} onClick={() => setMonthFilter(m)}>{m === "All" ? "All months" : m}</button>
-        ))}
-        {monthFilter !== "All" && (
-          currentMonthClosed
-            ? <button className="pill" onClick={reopenMonth}><Lock size={14} /> Reopen {monthFilter}</button>
-            : <button className="pill" onClick={closeMonth}><Lock size={14} /> Close {monthFilter}</button>
-        )}
+      <div className="card sections-area">
+        <h3>My Expense Sections <small>Create any block you want - School Transport, Groceries, Rent, etc.</small></h3>
+        <div className="add-section-row">
+          <input value={newSectionTitle} onChange={(e) => setNewSectionTitle(e.target.value)} placeholder="New section name, e.g. School Transport" onKeyDown={(e) => { if (e.key === "Enter") addSection(); }} />
+          <button onClick={addSection}><Plus size={16} /> Add Section</button>
+        </div>
+        {sections.length === 0 && <p style={{ color: "#64748b" }}>No sections yet. Type a name above and click Add Section.</p>}
+        {sections.map((section) => {
+          const stotal = sectionTotal(section);
+          const avg = section.items.length ? stotal / section.items.length : 0;
+          return (
+            <div key={section.id} className="section-card">
+              <div className="section-title-row">
+                <input className="section-title" value={section.title} onChange={(e) => updateSectionTitle(section.id, e.target.value)} />
+                <button className="delete-section-btn" onClick={() => deleteSection(section.id)}><Trash2 size={16} /> Delete section</button>
+              </div>
+              <div className="transport-grid">
+                {section.items.map((item) => {
+                  const share = stotal > 0 ? Math.round(((Number(item.amount) || 0) / stotal) * 100) : 0;
+                  return (
+                    <div key={item.id} className="person-card">
+                      <div className="field">
+                        <label>Name</label>
+                        <input className="person-name" value={item.name} onChange={(e) => updateItem(section.id, item.id, "name", e.target.value)} placeholder="Person name" />
+                      </div>
+                      <div className="field">
+                        <label>Amount $</label>
+                        <input type="number" min="0" step="0.01" value={item.amount} onChange={(e) => updateItem(section.id, item.id, "amount", e.target.value)} />
+                      </div>
+                      <div className="field">
+                        <label>Note</label>
+                        <input value={item.note} onChange={(e) => updateItem(section.id, item.id, "note", e.target.value)} placeholder="Bus pass, fuel..." />
+                      </div>
+                      <div className="person-share">
+                        <span>${(Number(item.amount) || 0).toFixed(2)} - {share}% of total</span>
+                        <div className="budget-bar"><div className="budget-fill" style={{ width: `${share}%`, background: "#f59e0b" }} /></div>
+                      </div>
+                      <button className="small-ghost-btn" onClick={() => deleteItemFromSection(section.id, item.id)}>Remove person</button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="section-actions">
+                <button className="small-ghost-btn" onClick={() => addItemToSection(section.id)}><Plus size={14} /> Add person</button>
+              </div>
+              <div className="transport-total">
+                <div className="total-stat">
+                  <span>Total - {section.title}</span>
+                  <strong>${stotal.toFixed(2)}</strong>
+                  <small>{section.items.length} persons</small>
+                </div>
+                <div className="total-stat">
+                  <span>Average per person</span>
+                  <strong>${avg.toFixed(2)}</strong>
+                  <small>total / {section.items.length}</small>
+                </div>
+                <div className="total-stat">
+                  <span>Items</span>
+                  <strong>{section.items.length}</strong>
+                  <small>rows in this section</small>
+                </div>
+                <button onClick={() => addSectionTotalToMain(section)} disabled={stotal <= 0}>
+                  Add ${stotal.toFixed(2)} to main expenses
+                </button>
+              </div>
+              <div className="split-box">
+                <strong>Split equally: ${avg.toFixed(2)} each</strong>
+                {section.items.map((item) => {
+                  const diff = (Number(item.amount) || 0) - avg;
+                  return (
+                    <div key={item.id} className="split-row">
+                      <span>{item.name} paid ${(Number(item.amount) || 0).toFixed(2)}</span>
+                      <span>{diff > 0.01 ? `is owed $${diff.toFixed(2)}` : diff < -0.01 ? `owes $${Math.abs(diff).toFixed(2)}` : "settled"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="card calc-card">
+        <div className="calc-row">
+          <div className="calc-field">
+            <label htmlFor="calc-month">Calculation month</label>
+            <input id="calc-month" type="month" value={monthFilter === "All" ? "" : monthFilter} onChange={(e) => setMonthFilter(e.target.value || "All")} />
+          </div>
+          {monthFilter !== "All" && (
+            currentMonthClosed
+              ? <button className="pill done-btn" onClick={reopenMonth}><Check size={14} /> {monthFilter} done - Reopen</button>
+              : <button className="pill" onClick={closeMonth}><Lock size={14} /> I&apos;m done with {monthFilter} - Mark done</button>
+          )}
+          {monthFilter !== "All" && <button className="pill" onClick={() => setMonthFilter("All")}>Back to All months</button>}
+        </div>
+        <p className="calc-note">{monthFilter === "All" ? "Showing all months together. Pick a month above to calculate just that month." : currentMonthClosed ? `${monthFilter} is done and locked. You cannot add, edit or delete expenses in it until you reopen it.` : `Calculating ${monthFilter} only - stats, charts and transactions below are for this month.`}</p>
+        <div className="month-pills">
+          {months.map((m) => (
+            <button key={m} className={monthFilter === m ? "pill active" : "pill"} onClick={() => setMonthFilter(m)}>{m === "All" ? "All months" : m}{closedMonths.includes(m) ? " ✓" : ""}</button>
+          ))}
+        </div>
       </div>
 
       <div className="charts">
@@ -890,88 +990,6 @@ export default function App() {
           )}
           <p style={{ color: "#64748b", fontSize: 13 }}>Tip: change the month pills above to see a different month's heatmap.</p>
         </div>
-      </div>
-
-      <div className="card sections-area">
-        <h3>My Expense Sections <small>Create any block you want - School Transport, Groceries, Rent, etc.</small></h3>
-        <div className="add-section-row">
-          <input value={newSectionTitle} onChange={(e) => setNewSectionTitle(e.target.value)} placeholder="New section name, e.g. School Transport" onKeyDown={(e) => { if (e.key === "Enter") addSection(); }} />
-          <button onClick={addSection}><Plus size={16} /> Add Section</button>
-        </div>
-        {sections.length === 0 && <p style={{ color: "#64748b" }}>No sections yet. Type a name above and click Add Section.</p>}
-        {sections.map((section) => {
-          const stotal = sectionTotal(section);
-          const avg = section.items.length ? stotal / section.items.length : 0;
-          return (
-            <div key={section.id} className="section-card">
-              <div className="section-title-row">
-                <input className="section-title" value={section.title} onChange={(e) => updateSectionTitle(section.id, e.target.value)} />
-                <button className="delete-section-btn" onClick={() => deleteSection(section.id)}><Trash2 size={16} /> Delete section</button>
-              </div>
-              <div className="transport-grid">
-                {section.items.map((item) => {
-                  const share = stotal > 0 ? Math.round(((Number(item.amount) || 0) / stotal) * 100) : 0;
-                  return (
-                    <div key={item.id} className="person-card">
-                      <div className="field">
-                        <label>Name</label>
-                        <input className="person-name" value={item.name} onChange={(e) => updateItem(section.id, item.id, "name", e.target.value)} placeholder="Person name" />
-                      </div>
-                      <div className="field">
-                        <label>Amount $</label>
-                        <input type="number" min="0" step="0.01" value={item.amount} onChange={(e) => updateItem(section.id, item.id, "amount", e.target.value)} />
-                      </div>
-                      <div className="field">
-                        <label>Note</label>
-                        <input value={item.note} onChange={(e) => updateItem(section.id, item.id, "note", e.target.value)} placeholder="Bus pass, fuel..." />
-                      </div>
-                      <div className="person-share">
-                        <span>${(Number(item.amount) || 0).toFixed(2)} - {share}% of total</span>
-                        <div className="budget-bar"><div className="budget-fill" style={{ width: `${share}%`, background: "#f59e0b" }} /></div>
-                      </div>
-                      <button className="small-ghost-btn" onClick={() => deleteItemFromSection(section.id, item.id)}>Remove person</button>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="section-actions">
-                <button className="small-ghost-btn" onClick={() => addItemToSection(section.id)}><Plus size={14} /> Add person</button>
-              </div>
-              <div className="transport-total">
-                <div className="total-stat">
-                  <span>Total - {section.title}</span>
-                  <strong>${stotal.toFixed(2)}</strong>
-                  <small>{section.items.length} persons</small>
-                </div>
-                <div className="total-stat">
-                  <span>Average per person</span>
-                  <strong>${avg.toFixed(2)}</strong>
-                  <small>total / {section.items.length}</small>
-                </div>
-                <div className="total-stat">
-                  <span>Items</span>
-                  <strong>{section.items.length}</strong>
-                  <small>rows in this section</small>
-                </div>
-                <button onClick={() => addSectionTotalToMain(section)} disabled={stotal <= 0}>
-                  Add ${stotal.toFixed(2)} to main expenses
-                </button>
-              </div>
-              <div className="split-box">
-                <strong>Split equally: ${avg.toFixed(2)} each</strong>
-                {section.items.map((item) => {
-                  const diff = (Number(item.amount) || 0) - avg;
-                  return (
-                    <div key={item.id} className="split-row">
-                      <span>{item.name} paid ${(Number(item.amount) || 0).toFixed(2)}</span>
-                      <span>{diff > 0.01 ? `is owed $${diff.toFixed(2)}` : diff < -0.01 ? `owes $${Math.abs(diff).toFixed(2)}` : "settled"}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
       </div>
 
       <div className="card data-tools-card">

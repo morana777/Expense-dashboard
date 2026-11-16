@@ -297,3 +297,15 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   .login-brand { padding: 28px 24px; }
   .login-card { padding: 28px 24px; }
 }
+
+/* --- Live date in header + calculation month picker --- */
+.live-date { margin: 6px 0 0; opacity: 0.92; font-size: 13px; font-weight: 600; }
+.calc-card { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+.calc-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.calc-field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px; }
+.calc-field label { font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+.calc-field input { background: white; width: 100%; }
+.calc-note { margin: 0; color: #64748b; font-size: 13px; line-height: 1.5; }
+.done-btn { background: #16a34a !important; color: white !important; border-color: #16a34a !important; }
+.done-btn:hover { background: #15803d !important; }
+.app.dark .calc-field label, .app.dark .calc-note { color: #94a3b8; }
