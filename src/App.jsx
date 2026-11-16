@@ -26,6 +26,7 @@ async function getSupabase() {
 }
 
 const categories = ["Food", "Housing", "Transport", "Entertainment", "Shopping", "Other"];
+const frequencies = ["One-time", "Daily", "Weekly", "Biweekly", "Monthly", "Quarterly", "Yearly"];
 const budgets = { Food: 300, Housing: 1000, Transport: 150, Entertainment: 100, Shopping: 250, Other: 100 };
 const COLORS = ["#7c3aed", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#94a3b8"];
 
@@ -45,6 +46,7 @@ export default function App() {
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("Food");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [frequency, setFrequency] = useState("One-time");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [monthFilter, setMonthFilter] = useState("All");
@@ -85,6 +87,7 @@ export default function App() {
   const [editAmount, setEditAmount] = useState("");
   const [editCategory, setEditCategory] = useState("Food");
   const [editDate, setEditDate] = useState("");
+  const [editFrequency, setEditFrequency] = useState("One-time");
   const [bills, setBills] = useState([]);
   const [billTitle, setBillTitle] = useState("");
   const [billAmount, setBillAmount] = useState("");
@@ -231,7 +234,7 @@ export default function App() {
       if (firstErr) { failSync(firstErr); setCloudLoaded(false); return; }
       // This load replaces the view completely, even with
       // empty results. A new user with no rows gets a blank dashboard.
-      setExpenses((expRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), category: r.category || "Other", date: r.date })));
+      setExpenses((expRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), category: r.category || "Other", date: r.date, frequency: r.frequency || "One-time" })));
       setBills((billRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), dueDate: r.due_date, paid: !!r.paid })));
       const itemsBySection = {};
       (itemRes.data || []).forEach((r) => {
@@ -257,7 +260,7 @@ export default function App() {
     setSyncStatus("syncing");
     const db = client.schema(SUPABASE_SCHEMA);
     await db.from("expenses").delete().eq("user_id", user.id);
-    const expPayload = expenses.map((e) => ({ user_id: user.id, title: e.title, amount: e.amount, category: e.category, date: e.date }));
+    const expPayload = expenses.map((e) => ({ user_id: user.id, title: e.title, amount: e.amount, category: e.category, date: e.date, frequency: e.frequency || "One-time" }));
     const { error: expErr } = await db.from("expenses").insert(expPayload);
     if (expErr) { failSync(expErr); return; }
     await db.from("bills").delete().eq("user_id", user.id);
@@ -316,7 +319,7 @@ export default function App() {
 
   const syncInsert = async (expense) => {
     const client = await getSupabase(); if (!client || !user) return;
-    await client.schema(SUPABASE_SCHEMA).from("expenses").insert({ user_id: user.id, title: expense.title, amount: expense.amount, category: expense.category, date: expense.date });
+    await client.schema(SUPABASE_SCHEMA).from("expenses").insert({ user_id: user.id, title: expense.title, amount: expense.amount, category: expense.category, date: expense.date, frequency: expense.frequency || "One-time" });
   };
   const syncDelete = async (id) => {
     const client = await getSupabase(); if (!client || !user) return;
@@ -324,7 +327,7 @@ export default function App() {
   };
   const syncUpdate = async (expense) => {
     const client = await getSupabase(); if (!client || !user) return;
-    await client.schema(SUPABASE_SCHEMA).from("expenses").update({ title: expense.title, amount: expense.amount, category: expense.category, date: expense.date }).eq("id", expense.id).eq("user_id", user.id);
+    await client.schema(SUPABASE_SCHEMA).from("expenses").update({ title: expense.title, amount: expense.amount, category: expense.category, date: expense.date, frequency: expense.frequency || "One-time" }).eq("id", expense.id).eq("user_id", user.id);
   };
 
   const now = new Date();
@@ -398,7 +401,7 @@ export default function App() {
     const todayStr = new Date().toISOString().slice(0, 10);
     const due = bills.filter((b) => !b.paid && b.dueDate <= todayStr);
     if (due.length === 0) { setImportMsg("No unpaid bills are due yet."); return; }
-    const newExps = due.map((b) => ({ id: Date.now() + Math.random(), title: b.title, amount: Number(b.amount), category: "Housing", date: todayStr }));
+    const newExps = due.map((b) => ({ id: Date.now() + Math.random(), title: b.title, amount: Number(b.amount), category: "Housing", date: todayStr, frequency: "One-time" }));
     setExpenses((prev) => [...newExps, ...prev]);
     newExps.forEach((e) => syncInsert(e));
     setBills((prev) => prev.map((b) => (due.find((d) => d.id === b.id) ? { ...b, paid: true } : b)));
@@ -417,8 +420,8 @@ export default function App() {
   });
   const heatLevel = (amt) => (amt <= 0 ? 0 : amt < 20 ? 1 : amt < 60 ? 2 : amt < 150 ? 3 : 4);
 
-  const doAddExpense = (cleanTitle, num, cat, d) => {
-    const newExp = { id: Date.now(), title: cleanTitle, amount: num, category: cat, date: d };
+  const doAddExpense = (cleanTitle, num, cat, d, freq) => {
+    const newExp = { id: Date.now(), title: cleanTitle, amount: num, category: cat, date: d, frequency: freq || "One-time" };
     setExpenses((prev) => [newExp, ...prev]);
     syncInsert(newExp);
     logHistory("Expense added", `${cleanTitle} $${num}`);
@@ -434,8 +437,8 @@ export default function App() {
     const dup = expenses.find((x) => x.title.toLowerCase() === cleanTitle.toLowerCase() && x.amount === num && x.date === date);
     if (dup && !force) { setPendingDuplicate({ title: cleanTitle, amount: num, date }); setError(`This looks like a duplicate of "${dup.title}" $${dup.amount} on ${dup.date}.`); return; }
     setError(""); setPendingDuplicate(null);
-    doAddExpense(cleanTitle, num, category, date);
-    setTitle(""); setAmount("");
+    doAddExpense(cleanTitle, num, category, date, frequency);
+    setTitle(""); setAmount(""); setFrequency("One-time");
   };
   const quickAdd = (e) => {
     e.preventDefault();
@@ -464,12 +467,12 @@ export default function App() {
   };
   const startEdit = (e) => {
     if (isMonthClosed(e.date.slice(0, 7))) { setError("That month is closed and locked."); return; }
-    setEditingId(e.id); setEditTitle(e.title); setEditAmount(String(e.amount)); setEditCategory(e.category); setEditDate(e.date);
+    setEditingId(e.id); setEditTitle(e.title); setEditAmount(String(e.amount)); setEditCategory(e.category); setEditDate(e.date); setEditFrequency(e.frequency || "One-time");
   };
   const saveEdit = () => {
     const num = Number(editAmount);
     if (!editTitle.trim() || !num || num <= 0) { setError("Edit needs a title and amount over $0."); return; }
-    const updated = { id: editingId, title: editTitle.trim(), amount: num, category: editCategory, date: editDate };
+    const updated = { id: editingId, title: editTitle.trim(), amount: num, category: editCategory, date: editDate, frequency: editFrequency };
     setExpenses((prev) => prev.map((x) => (x.id === editingId ? updated : x)));
     syncUpdate(updated);
     logHistory("Expense edited", `${updated.title} $${updated.amount}`);
@@ -477,8 +480,8 @@ export default function App() {
   };
 
   const exportCSV = () => {
-    const header = "Title,Amount,Category,Date\n";
-    const rows = expenses.map((e) => `"${e.title.replace(/"/g, '""')}",${e.amount},${e.category},${e.date}`).join("\n");
+    const header = "Title,Amount,Category,Date,Frequency\n";
+    const rows = expenses.map((e) => `"${e.title.replace(/"/g, '""')}",${e.amount},${e.category},${e.date},${e.frequency || "One-time"}`).join("\n");
     const blob = new Blob([header + rows], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -501,7 +504,7 @@ export default function App() {
       if (parts.length < 4) return;
       const amt = Number(parts[1]);
       if (!amt || amt <= 0) return;
-      rows.push({ id: Date.now() + Math.random(), title: parts[0] || "Imported", amount: amt, category: categories.includes(parts[2]) ? parts[2] : "Other", date: parts[3] || new Date().toISOString().slice(0, 10) });
+      rows.push({ id: Date.now() + Math.random(), title: parts[0] || "Imported", amount: amt, category: categories.includes(parts[2]) ? parts[2] : "Other", date: parts[3] || new Date().toISOString().slice(0, 10), frequency: frequencies.includes(parts[4]) ? parts[4] : "One-time" });
     });
     if (rows.length) { setExpenses((prev) => [...rows, ...prev]); rows.forEach((r) => syncInsert(r)); }
     setImportMsg(rows.length ? `Imported ${rows.length} real expenses from CSV.` : "No valid rows found in that CSV.");
@@ -522,12 +525,12 @@ export default function App() {
     try {
       const data = JSON.parse(await file.text());
       if (Array.isArray(data.expenses)) {
-        setExpenses(data.expenses);
+        setExpenses(data.expenses.map((e) => ({ ...e, frequency: e.frequency || "One-time" })));
         const client = await getSupabase();
         if (client && user) {
           const db = client.schema(SUPABASE_SCHEMA);
           await db.from("expenses").delete().eq("user_id", user.id);
-          const payload = data.expenses.map((e) => ({ user_id: user.id, title: e.title, amount: e.amount, category: e.category || "Other", date: e.date }));
+          const payload = data.expenses.map((e) => ({ user_id: user.id, title: e.title, amount: e.amount, category: e.category || "Other", date: e.date, frequency: e.frequency || "One-time" }));
           if (payload.length > 0) await db.from("expenses").insert(payload);
         }
       }
@@ -595,7 +598,7 @@ export default function App() {
   const addSectionTotalToMain = (section) => {
     const stotal = sectionTotal(section);
     if (stotal <= 0) return;
-    const newExp = { id: Date.now(), title: `${section.title} - Total (${section.items.length} persons)`, amount: Number(stotal.toFixed(2)), category: "Transport", date: new Date().toISOString().slice(0, 10) };
+    const newExp = { id: Date.now(), title: `${section.title} - Total (${section.items.length} persons)`, amount: Number(stotal.toFixed(2)), category: "Transport", date: new Date().toISOString().slice(0, 10), frequency: "One-time" };
     setExpenses((prev) => [newExp, ...prev]);
     syncInsert(newExp);
   };
@@ -693,8 +696,14 @@ export default function App() {
       {syncStatus === "error" && (
         <div className="alert" style={{ background: "#fef2f2", color: "#991b1b", borderColor: "#fca5a5" }}>
           <AlertTriangle size={18} />
-          <span><strong>Supabase error:</strong> {syncError || "Could not load or save your data."} Nothing is being saved to Supabase right now.</span>
-          <button className="pill" onClick={() => window.location.reload()}>Try again</button>
+          <span><strong>Supabase error:</strong> {syncError || "Could not load or save your data."} Nothing is being saved to Supabase right now.
+            {syncError.includes("foreign key constraint") && syncError.includes("user_id") && (
+              <> Your sign-in session does not match this Supabase project - the login id the browser is holding is not in this project's user list. Sign out and sign in again to get a fresh session.</>
+            )}
+          </span>
+          {syncError.includes("foreign key constraint") && syncError.includes("user_id")
+            ? <button className="pill" onClick={signOut}>Sign out and sign in again</button>
+            : <button className="pill" onClick={() => window.location.reload()}>Try again</button>}
         </div>
       )}
 
@@ -749,9 +758,10 @@ export default function App() {
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What did you spend on?" />
           <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount $" />
           <select value={category} onChange={(e) => setCategory(e.target.value)}>{categories.map((c) => <option key={c}>{c}</option>)}</select>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <select value={frequency} onChange={(e) => setFrequency(e.target.value)} title="How often does this repeat?">{frequencies.map((f) => <option key={f}>{f}</option>)}</select>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} title="Start date - which month this belongs to" />
           <button type="submit">Add Expense</button>
-          <small style={{ color: "#64748b" }}>Tip: use Quick Add above for fast entry, or Import Bank CSV for real data.</small>
+          <small style={{ color: "#64748b" }}>Tip: the date is the start date - pick a repeat like Monthly, Weekly or Biweekly for bills that come back.</small>
         </form>
 
         <div className="card">
@@ -771,6 +781,7 @@ export default function App() {
                   <input value={editTitle} onChange={(ev) => setEditTitle(ev.target.value)} placeholder="Title" />
                   <input type="number" step="0.01" value={editAmount} onChange={(ev) => setEditAmount(ev.target.value)} placeholder="Amount" />
                   <select value={editCategory} onChange={(ev) => setEditCategory(ev.target.value)}>{categories.map((c) => <option key={c}>{c}</option>)}</select>
+                  <select value={editFrequency} onChange={(ev) => setEditFrequency(ev.target.value)}>{frequencies.map((f) => <option key={f}>{f}</option>)}</select>
                   <input type="date" value={editDate} onChange={(ev) => setEditDate(ev.target.value)} />
                   <div className="edit-actions">
                     <button onClick={saveEdit}>Save</button>
@@ -781,7 +792,7 @@ export default function App() {
                 <>
                   <div>
                     <strong>{e.title} {titleCounts[e.title] > 1 && <span className="cat-pill" style={{ background: "#fef3c7", color: "#92400e" }}>Recurring</span>}</strong>
-                    <span><span className="cat-pill">{e.category}</span>{e.date}</span>
+                    <span><span className="cat-pill">{e.category}</span>{e.frequency && e.frequency !== "One-time" && <span className="cat-pill" style={{ background: "#ede9fe", color: "#6d28d9" }}>{e.frequency}</span>}{e.date}</span>
                   </div>
                   <div className="row-right">
                     <strong>${e.amount.toFixed(2)}</strong>
