@@ -56,6 +56,12 @@ export default function App() {
   const [newSectionTitle, setNewSectionTitle] = useState("");
   const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("theme_dark") === "true"; } catch { return false; } });
   const [syncStatus, setSyncStatus] = useState(supabaseUrl ? "loading" : "not-configured");
+  const [syncError, setSyncError] = useState("");
+  // Show the real Supabase reason instead of just the word "error".
+  const failSync = (err) => {
+    const msg = err && err.message ? err.message : "Unknown Supabase error";
+    setSyncError(msg); setSyncStatus("error"); console.error("Supabase error:", err);
+  };
   const [cloudLoaded, setCloudLoaded] = useState(false);
   const [user, setUser] = useState(null);
   const [authEmail, setAuthEmail] = useState("");
@@ -211,7 +217,8 @@ export default function App() {
         db.from("settings").select("*").eq("user_id", user.id).maybeSingle(),
       ]);
       if (cancelled) return;
-      if (expRes.error || billRes.error || secRes.error) { setSyncStatus("error"); setCloudLoaded(false); return; }
+      const firstErr = expRes.error || billRes.error || secRes.error || itemRes.error || setRes.error;
+      if (firstErr) { failSync(firstErr); setCloudLoaded(false); return; }
       // This load replaces the view completely, even with
       // empty results. A new user with no rows gets a blank dashboard.
       setExpenses((expRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), category: r.category || "Other", date: r.date })));
@@ -226,6 +233,7 @@ export default function App() {
       setSavingsGoal(setRes.data && setRes.data.savings_goal ? Number(setRes.data.savings_goal) : 0);
       setOpeningBalance(setRes.data && setRes.data.opening_balance ? Number(setRes.data.opening_balance) : 0);
       setClosedMonths([]);
+      setSyncError("");
       setSyncStatus("synced");
       setCloudLoaded(true);
     })();
@@ -241,18 +249,18 @@ export default function App() {
     await db.from("expenses").delete().eq("user_id", user.id);
     const expPayload = expenses.map((e) => ({ user_id: user.id, title: e.title, amount: e.amount, category: e.category, date: e.date }));
     const { error: expErr } = await db.from("expenses").insert(expPayload);
-    if (expErr) { setSyncStatus("error"); return; }
+    if (expErr) { failSync(expErr); return; }
     await db.from("bills").delete().eq("user_id", user.id);
     const billPayload = bills.map((b) => ({ user_id: user.id, title: b.title, amount: b.amount, due_date: b.dueDate, paid: !!b.paid }));
     const { error: billErr } = await db.from("bills").insert(billPayload);
-    if (billErr) { setSyncStatus("error"); return; }
+    if (billErr) { failSync(billErr); return; }
     const { error: setErr } = await db.from("settings").upsert({ user_id: user.id, monthly_income: monthlyIncome, savings_goal: savingsGoal, opening_balance: openingBalance }, { onConflict: "user_id" });
-    if (setErr) { setSyncStatus("error"); return; }
+    if (setErr) { failSync(setErr); return; }
     await db.from("section_items").delete().neq("id", 0);
     await db.from("sections").delete().eq("user_id", user.id);
     for (const section of sections) {
       const { data: secData, error: secErr } = await db.from("sections").insert({ user_id: user.id, title: section.title }).select("id").single();
-      if (secErr || !secData) { setSyncStatus("error"); return; }
+      if (secErr || !secData) { failSync(secErr || new Error("Could not create section")); return; }
       if (section.items.length > 0) {
         const itemPayload = section.items.map((item, idx) => ({ section_id: secData.id, user_id: user.id, name: item.name, amount: Number(item.amount) || 0, note: item.note || "", position: idx }));
         await db.from("section_items").insert(itemPayload);
@@ -269,15 +277,15 @@ export default function App() {
     setSyncStatus("saving");
     const db = client.schema(SUPABASE_SCHEMA);
     const { error: setErr } = await db.from("settings").upsert({ user_id: user.id, monthly_income: monthlyIncome, savings_goal: savingsGoal, opening_balance: openingBalance }, { onConflict: "user_id" });
-    if (setErr) { setSyncStatus("error"); return false; }
+    if (setErr) { failSync(setErr); return false; }
     await db.from("bills").delete().eq("user_id", user.id);
     const billPayload = bills.map((b) => ({ user_id: user.id, title: b.title, amount: b.amount, due_date: b.dueDate, paid: !!b.paid }));
-    if (billPayload.length > 0) { const { error: billErr } = await db.from("bills").insert(billPayload); if (billErr) { setSyncStatus("error"); return false; } }
+    if (billPayload.length > 0) { const { error: billErr } = await db.from("bills").insert(billPayload); if (billErr) { failSync(billErr); return false; } }
     await db.from("section_items").delete().eq("user_id", user.id);
     await db.from("sections").delete().eq("user_id", user.id);
     for (const section of sections) {
       const { data: secData, error: secErr } = await db.from("sections").insert({ user_id: user.id, title: section.title }).select("id").single();
-      if (secErr || !secData) { setSyncStatus("error"); return false; }
+      if (secErr || !secData) { failSync(secErr || new Error("Could not create section")); return false; }
       if (section.items.length > 0) {
         const itemPayload = section.items.map((item, idx) => ({ section_id: secData.id, user_id: user.id, name: item.name, amount: Number(item.amount) || 0, note: item.note || "", position: idx }));
         await db.from("section_items").insert(itemPayload);
@@ -672,7 +680,13 @@ export default function App() {
         </div>
       </header>
 
-
+      {syncStatus === "error" && (
+        <div className="alert" style={{ background: "#fef2f2", color: "#991b1b", borderColor: "#fca5a5" }}>
+          <AlertTriangle size={18} />
+          <span><strong>Supabase error:</strong> {syncError || "Could not load or save your data."} Nothing is being saved to Supabase right now.</span>
+          <button className="pill" onClick={() => window.location.reload()}>Try again</button>
+        </div>
+      )}
 
       {(overBudget.length > 0 || balance < 200) && expenses.length > 0 && (
         <div className="alert">
