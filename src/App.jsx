@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, CartesianGrid, Legend } from "recharts";
 import { Wallet, TrendingUp, TrendingDown, PiggyBank, Search, Trash2, Target, Download, RotateCcw, AlertTriangle, Undo2, Plus, Pencil, Moon, Sun, CalendarDays, Upload, Printer, Check, LogIn, LogOut, Zap, Lock, ShieldCheck, Sparkles } from "lucide-react";
+import ThreeBackground from "./ThreeBackground.jsx";
 
 // REAL-LIFE VERSION - START BLANK
 // No sample expenses, bills or sections. Add only your real data.
@@ -616,6 +617,7 @@ export default function App() {
   if (!user) {
     return (
       <div className={`app login-page ${darkMode ? "dark" : ""}`}>
+        <ThreeBackground dark={darkMode} />
         <div className="login-top">
           <div className="login-logo">
             <span className="login-logo-icon"><Wallet size={20} /></span>
@@ -711,6 +713,7 @@ export default function App() {
 
   return (
     <div className={`app ${darkMode ? "dark" : ""}`}>
+      <ThreeBackground dark={darkMode} />
       <header>
         <div className="header-top">
           <div>
