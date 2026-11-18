@@ -1,0 +1,13 @@
+# Cloudflare Worker config for the Money Expenses Dashboard
+# Copy this file to C:\MINE\expense-dashboard\wrangler.toml
+# Then run: npm run build
+# Then run: npx wrangler deploy
+# Your site goes live at https://expense-dashboard.moranakim777.workers.dev
+
+name = "expense-dashboard"
+compatibility_date = "2026-11-15"
+
+[assets]
+directory = "./dist"
+# Single-page app: any unknown path serves index.html
+not_found_handling = "single-page-application"
