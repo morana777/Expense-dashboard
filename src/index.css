@@ -1694,9 +1694,9 @@ button:disabled {
   pointer-events: none;
   background:
     radial-gradient(900px 600px at 12% -10%, rgba(124, 58, 237, 0.14), transparent 60%),
-    radial-gradient(900px 600px at 95% 15%, rgba(236, 72, 153, 0.12), transparent 60%),
-    radial-gradient(800px 600px at 50% 115%, rgba(245, 158, 11, 0.10), transparent 60%),
-    linear-gradient(180deg, #f8f9fe 0%, #f4f6fb 55%, #eef1f8 100%);
+    radial-gradient(900px 600px at 95% 15%, rgba(80, 220, 255, 0.10), transparent 60%),
+    radial-gradient(800px 600px at 50% 115%, rgba(109, 40, 217, 0.10), transparent 60%),
+    linear-gradient(180deg, #faf9f7 0%, #f2f1ec 55%, #eae8e1 100%);
   transition: background 0.6s ease;
   animation: bgFade 1.2s ease both;
 }
@@ -1704,17 +1704,33 @@ button:disabled {
 .three-bg-base[data-dark="true"] {
   background:
     radial-gradient(900px 600px at 12% -10%, rgba(124, 58, 237, 0.28), transparent 60%),
-    radial-gradient(900px 600px at 95% 15%, rgba(236, 72, 153, 0.22), transparent 60%),
-    radial-gradient(800px 600px at 50% 115%, rgba(59, 130, 246, 0.18), transparent 60%),
-    linear-gradient(180deg, #0b1220 0%, #0f172a 55%, #111827 100%);
+    radial-gradient(900px 600px at 95% 15%, rgba(80, 220, 255, 0.20), transparent 60%),
+    radial-gradient(800px 600px at 50% 115%, rgba(139, 92, 246, 0.20), transparent 60%),
+    linear-gradient(180deg, #08080a 0%, #0c0c10 55%, #111116 100%);
 }
 
 .three-bg {
   position: fixed;
   inset: 0;
-  z-index: 1;
+  z-index: 0;
   pointer-events: none;
   animation: bgFade 1.2s ease both;
+}
+
+/* Vignette above the canvas (z-index 1), below the content: darkens the
+   edges so the 3D reads as depth and the middle stays calm. */
+.three-bg-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 64%, rgba(0, 0, 0, 0.28) 100%);
+  opacity: 0.35;
+  animation: bgFade 1.2s ease both;
+}
+
+.app.dark .three-bg-vignette {
+  opacity: 1;
 }
 
 .three-bg canvas {
@@ -1747,7 +1763,7 @@ button:disabled {
 .card,
 .stat,
 .login-card {
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.82);
   backdrop-filter: blur(16px) saturate(1.25);
   -webkit-backdrop-filter: blur(16px) saturate(1.25);
   border: 1px solid rgba(255, 255, 255, 0.65);
@@ -1758,7 +1774,7 @@ button:disabled {
 .app.dark .card,
 .app.dark .stat,
 .app.dark .login-card {
-  background: rgba(30, 41, 59, 0.62);
+  background: rgba(30, 41, 59, 0.72);
   backdrop-filter: blur(16px) saturate(1.2);
   -webkit-backdrop-filter: blur(16px) saturate(1.2);
   border-color: rgba(148, 163, 184, 0.28);
@@ -1771,7 +1787,9 @@ button:disabled {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.app > *:not(.three-bg):not(.three-bg-base) {
+.app > *:not(.three-bg):not(.three-bg-base):not(.three-bg-vignette) {
+  position: relative;
+  z-index: 1;
   animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -1831,9 +1849,10 @@ header {
 
 /* --- Respect reduced motion: no entrance, no hover lift --- */
 @media (prefers-reduced-motion: reduce) {
-  .app > *:not(.three-bg):not(.three-bg-base),
+  .app > *:not(.three-bg):not(.three-bg-base):not(.three-bg-vignette),
   .three-bg-base,
-  .three-bg {
+  .three-bg,
+  .three-bg-vignette {
     animation: none;
   }
 
