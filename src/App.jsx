@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, CartesianGrid, Legend } from "recharts";
-import { Wallet, TrendingUp, TrendingDown, PiggyBank, Search, Trash2, Target, Download, RotateCcw, AlertTriangle, Undo2, Plus, Pencil, Moon, Sun, CalendarDays, Upload, Printer, LogIn, LogOut, Zap, Lock, ShieldCheck, Settings, X, Mail, Key, Eye, EyeOff, DollarSign, CheckCircle } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, PiggyBank, Search, Trash2, Target, Download, RotateCcw, AlertTriangle, Undo2, Plus, Pencil, Moon, Sun, CalendarDays, Upload, Printer, LogIn, LogOut, Zap, Lock, ShieldCheck, Settings, X, Mail, Key, Eye, EyeOff, DollarSign, CheckCircle, ArrowLeft } from "lucide-react";
 import ThreeBackground from "./ThreeBackground.jsx";
 
 const SUPABASE_SCHEMA = "expense_dashboard";
@@ -38,7 +38,7 @@ export default function App() {
   const [openingBalance, setOpeningBalance] = useState(0);
   const [currency, setCurrency] = useState("USD");
   const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false);
-  
+
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("Food");
@@ -58,16 +58,19 @@ export default function App() {
   const [syncError, setSyncError] = useState("");
   const [cloudLoaded, setCloudLoaded] = useState(false);
   const [user, setUser] = useState(null);
-  
+
   // Auth State
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [showAuthPassword, setShowAuthPassword] = useState(false);
   const [authMode, setAuthMode] = useState("signin");
   const [authMsg, setAuthMsg] = useState("");
-  const [authStep, setAuthStep] = useState("form"); // "form", "verify", "reset"
+  const [authStep, setAuthStep] = useState("form"); // "form", "verify"
   const [verifyCode, setVerifyCode] = useState("");
-  
+
+  // Custom Routing State for Forgot/Reset Password
+  const [route, setRoute] = useState(window.location.hash || "#login");
+
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
   const [editAmount, setEditAmount] = useState("");
@@ -95,7 +98,14 @@ export default function App() {
   const [showPassword, setShowPassword] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState("");
   const [settingsError, setSettingsError] = useState("");
-  const [pendingConfirmation, setPendingConfirmation] = useState(null); 
+  const [pendingConfirmation, setPendingConfirmation] = useState(null);
+
+  // Listen to Hash changes for routing
+  useEffect(() => {
+    const handleHashChange = () => setRoute(window.location.hash || "#login");
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
 
   const failSync = (err) => {
     const msg = err && err.message ? err.message : "Unknown Supabase error";
@@ -138,22 +148,21 @@ export default function App() {
     (async () => {
       const client = await getSupabase();
       if (!client) return;
-      
+
       const { data } = await client.auth.getSession();
       if (!cancelled && data.session) setUser(data.session.user);
-      
+
       client.auth.onAuthStateChange((event, session) => {
         if (!cancelled) {
           setUser(session ? session.user : null);
-          
+
           if (event === "USER_UPDATED") {
             setSettingsMsg("Your changes have been successfully confirmed!");
             setPendingConfirmation(null);
           }
-          // Supabase fires PASSWORD_RECOVERY when user clicks reset link
+          // Supabase fires PASSWORD_RECOVERY when user clicks the email link
           if (event === "PASSWORD_RECOVERY") {
-            setAuthStep("reset");
-            setAuthMsg("Enter your new password below.");
+            window.location.hash = "#reset-password";
           }
         }
       });
@@ -215,14 +224,14 @@ export default function App() {
     const client = await getSupabase();
     if (!client) { setAuthMsg("Supabase is not configured yet."); return; }
     if (!authEmail) { setAuthMsg("Enter your email address first."); return; }
-    
+
     setAuthMsg("");
     const { error } = await client.auth.resetPasswordForEmail(authEmail, {
-      redirectTo: window.location.origin + window.location.pathname,
+      // This explicitly points to the #reset-password hash
+      redirectTo: `${window.location.origin}${window.location.pathname}#reset-password`,
     });
-    
+
     if (error) { setAuthMsg(error.message); return; }
-    setAuthMode("signin");
     setAuthMsg(`If an account exists for ${authEmail}, a password reset link has been sent. Check your inbox.`);
   };
 
@@ -232,15 +241,15 @@ export default function App() {
     if (!client) { setAuthMsg("Supabase is not configured yet."); return; }
     if (newPassword.length < 6) { setAuthMsg("Password must be at least 6 characters."); return; }
     if (newPassword !== confirmPassword) { setAuthMsg("Passwords do not match."); return; }
-    
+
     setAuthMsg("");
     const { error } = await client.auth.updateUser({ password: newPassword });
     if (error) { setAuthMsg(error.message); return; }
-    
-    setAuthStep("form");
+
     setNewPassword("");
     setConfirmPassword("");
-    setAuthMsg("Password successfully reset! You are now signed in.");
+    window.location.hash = "#login";
+    setAuthMsg("Password successfully reset! You can now sign in.");
   };
 
   const signOut = async () => {
@@ -249,6 +258,7 @@ export default function App() {
     setUser(null); resetToBlank(); setCloudLoaded(false);
     setSyncStatus(supabaseUrl ? "loading" : "not-configured");
     setShowSettings(false);
+    window.location.hash = "#login";
   };
 
   // Supabase load with CRASH GUARD
@@ -261,7 +271,7 @@ export default function App() {
         if (!client) return;
         setSyncStatus("syncing");
         const db = client.schema(SUPABASE_SCHEMA);
-        
+
         const [expRes, billRes, secRes, itemRes, setRes] = await Promise.all([
           db.from("expenses").select("*").eq("user_id", user.id).order("date", { ascending: false }),
           db.from("bills").select("*").eq("user_id", user.id).order("due_date", { ascending: true }),
@@ -269,31 +279,31 @@ export default function App() {
           db.from("section_items").select("*").eq("user_id", user.id).order("section_id", { ascending: true }).order("position", { ascending: true }),
           db.from("settings").select("*").eq("user_id", user.id).maybeSingle(),
         ]);
-        
+
         if (cancelled) return;
-        
+
         const firstErr = expRes.error || billRes.error || secRes.error || itemRes.error || setRes.error;
-        if (firstErr) { 
+        if (firstErr) {
           console.error("Supabase Load Error:", firstErr);
-          failSync(firstErr); 
-          setCloudLoaded(true); 
-          return; 
+          failSync(firstErr);
+          setCloudLoaded(true);
+          return;
         }
 
         setExpenses((expRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), category: r.category || "Other", date: r.date, frequency: r.frequency || "One-time" })));
         setBills((billRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), dueDate: r.due_date, paid: !!r.paid })));
-        
+
         const itemsBySection = {};
         (itemRes.data || []).forEach((r) => {
           if (!itemsBySection[r.section_id]) itemsBySection[r.section_id] = [];
           itemsBySection[r.section_id].push({ id: r.id, name: r.name, amount: Number(r.amount), note: r.note || "" });
         });
-        
+
         setSections((secRes.data || []).map((s) => ({ id: s.id, title: s.title, items: itemsBySection[s.id] || [] })));
         setMonthlyIncome(setRes.data && setRes.data.monthly_income ? Number(setRes.data.monthly_income) : 0);
         setSavingsGoal(setRes.data && setRes.data.savings_goal ? Number(setRes.data.savings_goal) : 0);
         setOpeningBalance(setRes.data && setRes.data.opening_balance ? Number(setRes.data.opening_balance) : 0);
-        
+
         setClosedMonths([]);
         setSyncError("");
         setSyncStatus("synced");
@@ -303,7 +313,7 @@ export default function App() {
         console.error("Fatal App Sync Error:", err);
         setSyncError(err.message || "Failed to connect.");
         setSyncStatus("error");
-        setCloudLoaded(true); 
+        setCloudLoaded(true);
       }
     })();
     return () => { cancelled = true; };
@@ -314,15 +324,15 @@ export default function App() {
     if (!client || !user) return false;
     setSyncStatus("saving");
     const db = client.schema(SUPABASE_SCHEMA);
-    
+
     try {
       const { error: setErr } = await saveSettingsRow(db, user.id, { monthly_income: monthlyIncome, savings_goal: savingsGoal, opening_balance: openingBalance });
       if (setErr) { failSync(setErr); return false; }
-      
+
       await db.from("bills").delete().eq("user_id", user.id);
       const billPayload = bills.map((b) => ({ user_id: user.id, title: b.title, amount: b.amount, due_date: b.dueDate, paid: !!b.paid }));
       if (billPayload.length > 0) { const { error: billErr } = await db.from("bills").insert(billPayload); if (billErr) { failSync(billErr); return false; } }
-      
+
       await db.from("section_items").delete().eq("user_id", user.id);
       await db.from("sections").delete().eq("user_id", user.id);
       for (const section of sections) {
@@ -353,7 +363,7 @@ export default function App() {
     if (!user) { alert("Sign in first."); return; }
     setSyncStatus("syncing");
     const db = client.schema(SUPABASE_SCHEMA);
-    
+
     try {
       await db.from("expenses").delete().eq("user_id", user.id);
       const expPayload = expenses.map((e) => ({ user_id: user.id, title: e.title, amount: e.amount, category: e.category, date: e.date, frequency: e.frequency || "One-time" }));
@@ -361,7 +371,7 @@ export default function App() {
         const { error: expErr } = await db.from("expenses").insert(expPayload);
         if (expErr) { failSync(expErr); return; }
       }
-      await saveCloudMeta(); 
+      await saveCloudMeta();
       setSyncStatus("synced");
     } catch (err) {
       failSync(err);
@@ -436,7 +446,7 @@ export default function App() {
 
   const unpaidBills = bills.filter((b) => !b.paid);
   const unpaidTotal = unpaidBills.reduce((s, b) => s + Number(b.amount || 0), 0);
-  
+
   const addBill = (e) => {
     e.preventDefault();
     const num = Number(billAmount);
@@ -447,7 +457,7 @@ export default function App() {
   };
   const toggleBill = (id) => setBills((prev) => prev.map((b) => (b.id === id ? { ...b, paid: !b.paid } : b)));
   const deleteBill = (id) => setBills((prev) => prev.filter((b) => b.id !== id));
-  
+
   const addDueBillsAsExpenses = () => {
     const todayStr = new Date().toISOString().slice(0, 10);
     const due = bills.filter((b) => !b.paid && b.dueDate <= todayStr);
@@ -477,7 +487,7 @@ export default function App() {
     syncInsert(newExp);
     logHistory("Expense added", `${cleanTitle} $${num}`);
   };
-  
+
   const addExpense = (e, force = false) => {
     e.preventDefault();
     const cleanTitle = title.trim();
@@ -492,7 +502,7 @@ export default function App() {
     doAddExpense(cleanTitle, num, category, date, frequency);
     setTitle(""); setAmount(""); setFrequency("One-time");
   };
-  
+
   const quickAdd = (e) => {
     e.preventDefault();
     const num = Number(quickAmount);
@@ -513,18 +523,18 @@ export default function App() {
     logHistory("Expense deleted", `${found.title} $${found.amount}`);
     setLastDeleted(found);
   };
-  
+
   const undoDelete = () => {
     if (!lastDeleted) return;
     setExpenses((prev) => [lastDeleted, ...prev]);
     setLastDeleted(null);
   };
-  
+
   const startEdit = (e) => {
     if (isMonthClosed(e.date.slice(0, 7))) { setError("That month is closed."); return; }
     setEditingId(e.id); setEditTitle(e.title); setEditAmount(String(e.amount)); setEditCategory(e.category); setEditDate(e.date); setEditFrequency(e.frequency || "One-time");
   };
-  
+
   const saveEdit = () => {
     const num = Number(editAmount);
     if (!editTitle.trim() || !num || num <= 0) { setError("Edit needs a title and amount."); return; }
@@ -543,12 +553,12 @@ export default function App() {
     const a = document.createElement("a"); a.href = url; a.download = "expenses.csv"; a.click();
     URL.revokeObjectURL(url);
   };
-  
+
   const parseCSVLine = (line) => {
     const m = line.match(/"([^"]*)"|[^,]+/g) || [];
     return m.map((s) => s.replace(/^"|"$/g, "").trim());
   };
-  
+
   const importCSV = async (ev) => {
     const file = ev.target.files && ev.target.files[0];
     if (!file) return;
@@ -567,7 +577,7 @@ export default function App() {
     setImportMsg(rows.length ? `Imported ${rows.length} expenses.` : "No valid rows found.");
     ev.target.value = "";
   };
-  
+
   const backupJSON = () => {
     const data = { exportedAt: new Date().toISOString(), monthlyIncome, savingsGoal, openingBalance, expenses, sections, bills, closedMonths, currency };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -575,7 +585,7 @@ export default function App() {
     const a = document.createElement("a"); a.href = url; a.download = "money-dashboard-backup.json"; a.click();
     URL.revokeObjectURL(url); setImportMsg("Backup downloaded.");
   };
-  
+
   const restoreJSON = async (ev) => {
     const file = ev.target.files && ev.target.files[0];
     if (!file) return;
@@ -601,7 +611,7 @@ export default function App() {
     } catch { setImportMsg("That backup file could not be read."); }
     ev.target.value = "";
   };
-  
+
   const resetAll = async () => {
     if (!window.confirm("Start blank again? This clears all your real expenses, bills and sections in Supabase.")) return;
     setExpenses([]); setBills([]); setSections([]); setClosedMonths([]); setLastDeleted(null);
@@ -615,12 +625,12 @@ export default function App() {
     }
     logHistory("Reset", "Started blank again");
   };
-  
+
   const closeMonth = () => {
     if (monthFilter === "All") { setError("Pick a calculation month first."); return; }
     if (!closedMonths.includes(monthFilter)) { setClosedMonths((prev) => [...prev, monthFilter]); logHistory("Month done", `${monthFilter} locked`); }
   };
-  
+
   const reopenMonth = () => {
     if (monthFilter === "All") return;
     setClosedMonths((prev) => prev.filter((m) => m !== monthFilter));
@@ -628,33 +638,35 @@ export default function App() {
   };
 
   const sectionTotal = (section) => section.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-  
+
   const addSection = () => {
     const name = newSectionTitle.trim();
     if (!name) return;
-    setSections((prev) => [...prev, { id: Date.now(), title: name, items: [
-      { id: Date.now() + 1, name: "Person 1", amount: 0, note: "" },
-      { id: Date.now() + 2, name: "Person 2", amount: 0, note: "" },
-      { id: Date.now() + 3, name: "Person 3", amount: 0, note: "" },
-    ]}]);
+    setSections((prev) => [...prev, {
+      id: Date.now(), title: name, items: [
+        { id: Date.now() + 1, name: "Person 1", amount: 0, note: "" },
+        { id: Date.now() + 2, name: "Person 2", amount: 0, note: "" },
+        { id: Date.now() + 3, name: "Person 3", amount: 0, note: "" },
+      ]
+    }]);
     setNewSectionTitle("");
   };
-  
+
   const updateSectionTitle = (sectionId, newTitle) => setSections((prev) => prev.map((s) => (s.id === sectionId ? { ...s, title: newTitle } : s)));
-  
+
   const updateItem = (sectionId, itemId, field, value) => {
     setSections((prev) => prev.map((s) => s.id !== sectionId ? s : { ...s, items: s.items.map((item) => item.id === itemId ? { ...item, [field]: field === "amount" ? Number(value) || 0 : value } : item) }));
   };
-  
+
   const addItemToSection = (sectionId) => setSections((prev) => prev.map((s) => s.id === sectionId ? { ...s, items: [...s.items, { id: Date.now(), name: `Person ${s.items.length + 1}`, amount: 0, note: "" }] } : s));
-  
+
   const deleteItemFromSection = (sectionId, itemId) => setSections((prev) => prev.map((s) => (s.id === sectionId ? { ...s, items: s.items.filter((i) => i.id !== itemId) } : s)));
-  
+
   const deleteSection = (sectionId) => {
     if (!window.confirm("Delete this whole section?")) return;
     setSections((prev) => prev.filter((s) => s.id !== sectionId));
   };
-  
+
   const addSectionTotalToMain = (section) => {
     const stotal = sectionTotal(section);
     if (stotal <= 0) return;
@@ -670,20 +682,20 @@ export default function App() {
   const handleUpdateEmail = async (e) => {
     e.preventDefault();
     setSettingsMsg(""); setSettingsError("");
-    
-    if (!newEmail || newEmail === user.email) { 
-      setSettingsError("Enter a new valid email."); 
-      return; 
+
+    if (!newEmail || newEmail === user.email) {
+      setSettingsError("Enter a new valid email.");
+      return;
     }
 
     const client = await getSupabase();
     if (!client) return;
 
     const { error } = await client.auth.updateUser({ email: newEmail });
-    
-    if (error) { 
-      setSettingsError(error.message); 
-      return; 
+
+    if (error) {
+      setSettingsError(error.message);
+      return;
     }
 
     setPendingConfirmation("email");
@@ -694,30 +706,30 @@ export default function App() {
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
     setSettingsMsg(""); setSettingsError("");
-    
-    if (!newPassword || newPassword.length < 6) { 
-      setSettingsError("Password must be at least 6 characters."); 
-      return; 
+
+    if (!newPassword || newPassword.length < 6) {
+      setSettingsError("Password must be at least 6 characters.");
+      return;
     }
-    
-    if (newPassword !== confirmPassword) { 
-      setSettingsError("Passwords do not match."); 
-      return; 
+
+    if (newPassword !== confirmPassword) {
+      setSettingsError("Passwords do not match.");
+      return;
     }
 
     const client = await getSupabase();
     if (!client) return;
 
     const { error } = await client.auth.updateUser({ password: newPassword });
-    
-    if (error) { 
-      setSettingsError(error.message); 
-      return; 
+
+    if (error) {
+      setSettingsError(error.message);
+      return;
     }
 
     setPendingConfirmation("password");
     setSettingsMsg(`A confirmation link has been sent to ${user.email}. Please check your inbox and click the link to finalize the password change.`);
-    setNewPassword(""); 
+    setNewPassword("");
     setConfirmPassword("");
   };
 
@@ -744,7 +756,8 @@ export default function App() {
     alert("Account data deleted. Signed out.");
   };
 
-  if (!user) {
+  // Auth Page Renderer
+  if (!user || route === "#forgot-password" || route === "#reset-password") {
     return (
       <div className={`app login-page ${darkMode ? "dark" : ""}`} style={{ zIndex: 10 }}>
         <ThreeBackground dark={darkMode} />
@@ -755,47 +768,50 @@ export default function App() {
           </div>
           <button className="small-ghost-btn" onClick={() => setDarkMode(!darkMode)}>{darkMode ? <Sun size={15} /> : <Moon size={15} />} {darkMode ? "Light mode" : "Dark mode"}</button>
         </div>
-        <div className="login-wrap">
-          <div className="login-brand">
-            <h2>Your money, tracked monthly.</h2>
-            <p>Note down what you spend, see where it goes, and finish the month knowing your real numbers.</p>
-            <div className="login-features">
-              <div className="login-feature"><TrendingUp size={18} /> Charts and budgets for every category</div>
-              <div className="login-feature"><CalendarDays size={18} /> Bills and due dates, with reminders</div>
-              <div className="login-feature"><PiggyBank size={18} /> Savings goal, tracked to 100%</div>
-              <div className="login-feature"><ShieldCheck size={18} /> Private - only your account can see it</div>
-            </div>
-          </div>
+
+        <div className="login-wrap" style={{ gridTemplateColumns: "1fr", maxWidth: 500 }}>
           <div className="login-card">
-            {authStep === "verify" ? (
+
+            {/* 1. FORGOT PASSWORD PAGE */}
+            {route === "#forgot-password" ? (
               <>
-                <h2>Check your email</h2>
-                <p>We sent a 6-digit code to <strong>{authEmail}</strong>. Enter it below to verify your email and finish signing up.</p>
-                <form onSubmit={verifySignupCode} className="login-form">
+                <h2>Reset your password</h2>
+                <p>Enter your email address and we'll send you a link to reset your password.</p>
+                <form onSubmit={handleForgotPassword} className="login-form">
                   <div className="login-field">
-                    <label htmlFor="verify-code">6-digit code</label>
-                    <input id="verify-code" type="text" inputMode="numeric" maxLength={6} value={verifyCode} onChange={(e) => setVerifyCode(e.target.value.replace(/[^0-9]/g, ""))} placeholder="123456" required />
+                    <label htmlFor="forgot-email">Email</label>
+                    <input
+                      id="forgot-email"
+                      type="email"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      required
+                    />
                   </div>
-                  {authMsg && <div className="form-error">{authMsg}</div>}
-                  <button type="submit" className="login-submit"><ShieldCheck size={16} /> Verify code</button>
+                  {authMsg && <div className={authMsg.includes("sent") ? "alert" : "form-error"} style={authMsg.includes("sent") ? { background: "rgba(94, 234, 212, 0.15)", color: "var(--good)" } : {}}>{authMsg}</div>}
+                  <button type="submit" className="login-submit"><Mail size={16} /> Send Reset Link</button>
                 </form>
-                <button type="button" className="login-toggle" onClick={resendSignupCode}>Didn't get it? Send a new code</button>
-                <button type="button" className="login-toggle" onClick={() => { setAuthStep("form"); setAuthMode("signin"); setAuthMsg(""); }}>Back to sign in</button>
+                <button type="button" className="login-toggle" onClick={() => { window.location.hash = "#login"; setAuthMsg(""); }} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <ArrowLeft size={14} /> Back to sign in
+                </button>
               </>
-            ) : authStep === "reset" ? (
+            ) : route === "#reset-password" ? (
+
+              /* 2. RESET PASSWORD PAGE (Where the email link lands) */
               <>
-                <h2>Reset Password</h2>
-                <p>Enter a new password for <strong>{user?.email || authEmail}</strong>.</p>
+                <h2>Create new password</h2>
+                <p>Enter your new password below.</p>
                 <form onSubmit={handleResetPasswordSubmit} className="login-form">
                   <div className="login-field">
-                    <label htmlFor="reset-password">New Password</label>
+                    <label htmlFor="new-password">New Password</label>
                     <div style={{ position: "relative" }}>
-                      <input 
-                        id="reset-password"
-                        type={showAuthPassword ? "text" : "password"} 
-                        value={newPassword} 
-                        onChange={(e) => setNewPassword(e.target.value)} 
-                        placeholder="New password" 
+                      <input
+                        id="new-password"
+                        type={showAuthPassword ? "text" : "password"}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="New password"
                         required
                       />
                       <button type="button" className="small-ghost-btn" onClick={() => setShowAuthPassword(!showAuthPassword)} style={{ position: "absolute", right: 8, top: 8, padding: 6 }}>
@@ -805,12 +821,12 @@ export default function App() {
                   </div>
                   <div className="login-field">
                     <label htmlFor="confirm-password">Confirm Password</label>
-                    <input 
+                    <input
                       id="confirm-password"
-                      type={showAuthPassword ? "text" : "password"} 
-                      value={confirmPassword} 
-                      onChange={(e) => setConfirmPassword(e.target.value)} 
-                      placeholder="Confirm new password" 
+                      type={showAuthPassword ? "text" : "password"}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm new password"
                       required
                     />
                   </div>
@@ -819,44 +835,66 @@ export default function App() {
                 </form>
               </>
             ) : (
+
+              /* 3. MAIN LOGIN / SIGNUP PAGE */
               <>
-                <h2>{authMode === "signup" ? "Create your account" : "Welcome back"}</h2>
-                <p>{authMode === "signup" ? "Sign up once, then we will email you a 6-digit code to verify your email." : "Sign in to see your expenses and add new ones."}</p>
-                {!supabaseUrl && <div className="form-error">Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file.</div>}
-                <form onSubmit={signInOrUp} className="login-form">
-                  <div className="login-field">
-                    <label htmlFor="login-email">Email</label>
-                    <input id="login-email" type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="you@example.com" required />
-                  </div>
-                  <div className="login-field">
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <label htmlFor="login-password">Password</label>
-                      {authMode === "signin" && (
-                        <button type="button" className="small-ghost-btn" onClick={handleForgotPassword} style={{ background: "none", border: "none", padding: 0, fontSize: 12, color: "var(--cyan)", boxShadow: "none" }}>
-                          Forgot password?
-                        </button>
-                      )}
-                    </div>
-                    <div style={{ position: "relative" }}>
-                      <input 
-                        id="login-password" 
-                        type={showAuthPassword ? "text" : "password"} 
-                        value={authPassword} 
-                        onChange={(e) => setAuthPassword(e.target.value)} 
-                        placeholder="Your password" 
-                        required 
-                      />
-                      <button type="button" className="small-ghost-btn" onClick={() => setShowAuthPassword(!showAuthPassword)} style={{ position: "absolute", right: 8, top: 8, padding: 6, background: "none", border: "none" }}>
-                        {showAuthPassword ? <EyeOff size={14} color="var(--ink-dim)" /> : <Eye size={14} color="var(--ink-dim)" />}
-                      </button>
-                    </div>
-                  </div>
-                  {authMsg && <div className="form-error">{authMsg}</div>}
-                  <button type="submit" className="login-submit"><LogIn size={16} /> {authMode === "signup" ? "Sign up" : "Sign in"}</button>
-                </form>
-                <button type="button" className="login-toggle" onClick={() => setAuthMode(authMode === "signup" ? "signin" : "signup")}>{authMode === "signup" ? "Have an account? Sign in" : "No account? Sign up"}</button>
+                {authStep === "verify" ? (
+                  <>
+                    <h2>Check your email</h2>
+                    <p>We sent a 6-digit code to <strong>{authEmail}</strong>. Enter it below to verify your email and finish signing up.</p>
+                    <form onSubmit={verifySignupCode} className="login-form">
+                      <div className="login-field">
+                        <label htmlFor="verify-code">6-digit code</label>
+                        <input id="verify-code" type="text" inputMode="numeric" maxLength={6} value={verifyCode} onChange={(e) => setVerifyCode(e.target.value.replace(/[^0-9]/g, ""))} placeholder="123456" required />
+                      </div>
+                      {authMsg && <div className="form-error">{authMsg}</div>}
+                      <button type="submit" className="login-submit"><ShieldCheck size={16} /> Verify code</button>
+                    </form>
+                    <button type="button" className="login-toggle" onClick={resendSignupCode}>Didn't get it? Send a new code</button>
+                    <button type="button" className="login-toggle" onClick={() => { setAuthStep("form"); setAuthMode("signin"); setAuthMsg(""); }}>Back to sign in</button>
+                  </>
+                ) : (
+                  <>
+                    <h2>{authMode === "signup" ? "Create your account" : "Welcome back"}</h2>
+                    <p>{authMode === "signup" ? "Sign up once, then we will email you a 6-digit code to verify your email." : "Sign in to see your expenses and add new ones."}</p>
+                    {!supabaseUrl && <div className="form-error">Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file.</div>}
+                    <form onSubmit={signInOrUp} className="login-form">
+                      <div className="login-field">
+                        <label htmlFor="login-email">Email</label>
+                        <input id="login-email" type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="you@example.com" required />
+                      </div>
+                      <div className="login-field">
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <label htmlFor="login-password">Password</label>
+                          {authMode === "signin" && (
+                            <button type="button" className="small-ghost-btn" onClick={() => { window.location.hash = "#forgot-password"; setAuthMsg(""); }} style={{ background: "none", border: "none", padding: 0, fontSize: 12, color: "var(--cyan)", boxShadow: "none" }}>
+                              Forgot password?
+                            </button>
+                          )}
+                        </div>
+                        <div style={{ position: "relative" }}>
+                          <input
+                            id="login-password"
+                            type={showAuthPassword ? "text" : "password"}
+                            value={authPassword}
+                            onChange={(e) => setAuthPassword(e.target.value)}
+                            placeholder="Your password"
+                            required
+                          />
+                          <button type="button" className="small-ghost-btn" onClick={() => setShowAuthPassword(!showAuthPassword)} style={{ position: "absolute", right: 8, top: 8, padding: 6, background: "none", border: "none" }}>
+                            {showAuthPassword ? <EyeOff size={14} color="var(--ink-dim)" /> : <Eye size={14} color="var(--ink-dim)" />}
+                          </button>
+                        </div>
+                      </div>
+                      {authMsg && <div className="form-error">{authMsg}</div>}
+                      <button type="submit" className="login-submit"><LogIn size={16} /> {authMode === "signup" ? "Sign up" : "Sign in"}</button>
+                    </form>
+                    <button type="button" className="login-toggle" onClick={() => setAuthMode(authMode === "signup" ? "signin" : "signup")}>{authMode === "signup" ? "Have an account? Sign in" : "No account? Sign up"}</button>
+                  </>
+                )}
               </>
             )}
+
             <p className="login-note"><Lock size={13} /> Your data lives in Supabase only, under your account.</p>
           </div>
         </div>
@@ -899,7 +937,7 @@ export default function App() {
     return (
       <div className={`app ${darkMode ? "dark" : ""}`} style={{ position: "relative", zIndex: 10 }}>
         <ThreeBackground dark={darkMode} />
-        
+
         <header>
           <div className="header-top">
             <div>
@@ -916,10 +954,10 @@ export default function App() {
           {/* Account Settings */}
           <div className="card">
             <h3><ShieldCheck size={18} /> Account Security</h3>
-            
+
             {settingsMsg && <div className="alert" style={{ background: "rgba(94, 234, 212, 0.15)", color: "var(--good)", borderColor: "rgba(94, 234, 212, 0.3)" }}>{settingsMsg}</div>}
             {settingsError && <div className="form-error">{settingsError}</div>}
-            
+
             {pendingConfirmation === "email" && (
               <div className="alert" style={{ background: "rgba(255, 209, 102, 0.15)", color: "var(--warn)", borderColor: "rgba(255, 209, 102, 0.3)" }}>
                 <AlertTriangle size={16} /> Please confirm the new email address to finalize the change.
@@ -946,21 +984,21 @@ export default function App() {
                 <label>Change Password</label>
                 <div style={{ display: "flex", gap: 8, flexDirection: "column" }}>
                   <div style={{ position: "relative" }}>
-                    <input 
-                      type={showPassword ? "text" : "password"} 
-                      value={newPassword} 
-                      onChange={(e) => setNewPassword(e.target.value)} 
-                      placeholder="New password" 
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="New password"
                     />
                     <button type="button" className="small-ghost-btn" onClick={() => setShowPassword(!showPassword)} style={{ position: "absolute", right: 8, top: 8, padding: 6 }}>
                       {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                     </button>
                   </div>
-                  <input 
-                    type={showPassword ? "text" : "password"} 
-                    value={confirmPassword} 
-                    onChange={(e) => setConfirmPassword(e.target.value)} 
-                    placeholder="Confirm new password" 
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm new password"
                   />
                   <button type="submit"><Key size={14} /> Update Password</button>
                 </div>
@@ -971,11 +1009,11 @@ export default function App() {
           {/* Preferences */}
           <div className="card">
             <h3><Settings size={18} /> Preferences</h3>
-            
+
             <div className="field" style={{ marginBottom: 16 }}>
               <label>Appearance</label>
               <button className="white-btn" onClick={() => setDarkMode(!darkMode)} style={{ width: "100%", justifyContent: "center" }}>
-                {darkMode ? <Sun size={16} /> : <Moon size={16} />} 
+                {darkMode ? <Sun size={16} /> : <Moon size={16} />}
                 Switch to {darkMode ? "Light" : "Dark"} Mode
               </button>
             </div>
@@ -990,8 +1028,8 @@ export default function App() {
                 {showCurrencyDropdown && (
                   <div className="currency-dropdown">
                     {CURRENCIES.map((c) => (
-                      <button 
-                        key={c.code} 
+                      <button
+                        key={c.code}
                         className="currency-option"
                         onClick={() => { setCurrency(c.code); setShowCurrencyDropdown(false); }}
                       >
