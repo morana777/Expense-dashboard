@@ -1,21 +1,13 @@
 import { useState, useEffect, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, CartesianGrid, Legend } from "recharts";
-import { Wallet, TrendingUp, TrendingDown, PiggyBank, Search, Trash2, Target, Download, RotateCcw, AlertTriangle, Undo2, Plus, Pencil, Moon, Sun, CalendarDays, Upload, Printer, Check, LogIn, LogOut, Zap, Lock, ShieldCheck, Sparkles } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, PiggyBank, Search, Trash2, Target, Download, RotateCcw, AlertTriangle, Undo2, Plus, Pencil, Moon, Sun, CalendarDays, Upload, Printer, LogIn, LogOut, Zap, Lock, ShieldCheck } from "lucide-react";
 import ThreeBackground from "./ThreeBackground.jsx";
-
-// REAL-LIFE VERSION - START BLANK
-// No sample expenses, bills or sections. Add only your real data.
-// Supabase schema: expense_dashboard (see supabase-schema.sql - one main file)
-// SUPABASE ONLY - no local mode, no guest mode.
-// Sign in is required. All expenses, bills, sections and settings live in Supabase
-// schema expense_dashboard, filtered by user_id. Nothing is saved in localStorage
-// except the dark/light theme, which is just a display setting.
-// Deploy: see netlify.toml + manifest.webmanifest
 
 const SUPABASE_SCHEMA = "expense_dashboard";
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 let supabaseClient = null;
+
 async function getSupabase() {
   if (supabaseClient) return supabaseClient;
   if (!supabaseUrl || !supabaseKey) return null;
@@ -29,14 +21,7 @@ async function getSupabase() {
 const categories = ["Food", "Housing", "Transport", "Entertainment", "Shopping", "Other"];
 const frequencies = ["One-time", "Daily", "Weekly", "Biweekly", "Monthly", "Quarterly", "Yearly"];
 const budgets = { Food: 300, Housing: 1000, Transport: 150, Entertainment: 100, Shopping: 250, Other: 100 };
-const COLORS = ["#7c3aed", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#94a3b8"];
-
-
-
-
-
-
-
+const COLORS = ["#9ffcff", "#ff4fd8", "#7c5cff", "#5eead4", "#f59e0b", "#94a3b8"];
 
 export default function App() {
   const [expenses, setExpenses] = useState([]);
@@ -60,28 +45,13 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("theme_dark") === "true"; } catch { return false; } });
   const [syncStatus, setSyncStatus] = useState(supabaseUrl ? "loading" : "not-configured");
   const [syncError, setSyncError] = useState("");
-  // Show the real Supabase reason instead of just the word "error".
-  const failSync = (err) => {
-    const msg = err && err.message ? err.message : "Unknown Supabase error";
-    setSyncError(msg); setSyncStatus("error"); console.error("Supabase error:", err);
-  };
-  // Save the user's settings row without upsert/onConflict.
-  // onConflict needs a unique constraint on user_id, and the live
-  // settings table (old v1, id = 1 as primary key) does not have one,
-  // which is what caused "no unique or exclusion constraint matching
-  // the ON CONFLICT specification". Update if the row exists, else insert.
-  const saveSettingsRow = async (db, uid, values) => {
-    const { data: existing } = await db.from("settings").select("user_id").eq("user_id", uid).maybeSingle();
-    if (existing) return await db.from("settings").update(values).eq("user_id", uid);
-    return await db.from("settings").insert({ user_id: uid, ...values });
-  };
   const [cloudLoaded, setCloudLoaded] = useState(false);
   const [user, setUser] = useState(null);
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authMode, setAuthMode] = useState("signin");
   const [authMsg, setAuthMsg] = useState("");
-  const [authStep, setAuthStep] = useState("form"); // "form" or "verify"
+  const [authStep, setAuthStep] = useState("form");
   const [verifyCode, setVerifyCode] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
@@ -95,12 +65,23 @@ export default function App() {
   const [billDue, setBillDue] = useState(new Date().toISOString().slice(0, 10));
   const [showReport, setShowReport] = useState(false);
   const [importMsg, setImportMsg] = useState("");
-  const [closedMonths, setClosedMonths] = useState([]); // session only, not saved in Supabase yet
+  const [closedMonths, setClosedMonths] = useState([]);
   const [pendingDuplicate, setPendingDuplicate] = useState(null);
-  const [history, setHistory] = useState([]); // session only
+  const [history, setHistory] = useState([]);
   const [quickAmount, setQuickAmount] = useState("");
   const [quickTitle, setQuickTitle] = useState("");
   const [quickCategory, setQuickCategory] = useState("Food");
+
+  const failSync = (err) => {
+    const msg = err && err.message ? err.message : "Unknown Supabase error";
+    setSyncError(msg); setSyncStatus("error"); console.error("Supabase error:", err);
+  };
+
+  const saveSettingsRow = async (db, uid, values) => {
+    const { data: existing } = await db.from("settings").select("user_id").eq("user_id", uid).maybeSingle();
+    if (existing) return await db.from("settings").update(values).eq("user_id", uid);
+    return await db.from("settings").insert({ user_id: uid, ...values });
+  };
 
   const resetToBlank = () => {
     setExpenses([]); setBills([]); setSections([]);
@@ -109,15 +90,11 @@ export default function App() {
     setPendingDuplicate(null); setError("");
   };
 
-  // Only the dark/light theme lives in localStorage - it is a display
-  // setting, not your money data. All money data is in Supabase only.
   useEffect(() => { try { localStorage.setItem("theme_dark", darkMode ? "true" : "false"); } catch { } }, [darkMode]);
-  // Real-time date and time, ticks every second.
   useEffect(() => {
     const t = setInterval(() => setLiveNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
-
   useEffect(() => {
     if (!lastDeleted) return;
     const t = setTimeout(() => setLastDeleted(null), 6000);
@@ -150,34 +127,24 @@ export default function App() {
     const client = await getSupabase();
     if (!client) { setAuthMsg("Supabase is not configured yet. Add .env keys first."); return; }
     setAuthMsg("");
-    // Sign-in: email + password, straight in, no code needed.
     if (authMode === "signin") {
       const { data, error } = await client.auth.signInWithPassword({ email: authEmail, password: authPassword });
       if (error) { setAuthMsg(error.message); return; }
       if (data.user) {
-        resetToBlank();
-        setUser(data.user);
-        setAuthMsg("Signed in.");
+        resetToBlank(); setUser(data.user); setAuthMsg("Signed in.");
       }
       return;
     }
-    // Sign-up: create the account, Supabase emails a 6-digit code.
-    // The user is NOT signed in yet - they must enter the code first.
-    // Tag this account with the app it signed up from, so in Supabase
-    // Authentication > Users you can tell it came from the expense
-    // dashboard, not your other projects that share this Supabase project.
-    // Click a user there, then look at User Metadata: app = "expense-dashboard".
     const { data, error } = await client.auth.signUp({ email: authEmail, password: authPassword, options: { data: { app: "expense-dashboard" } } });
     if (error) { setAuthMsg(error.message); return; }
     if (data.user) {
-      setVerifyCode("");
-      setAuthStep("verify");
+      setVerifyCode(""); setAuthStep("verify");
       setAuthMsg(`We sent a 6-digit code to ${authEmail}. Enter it below to verify your email.`);
     } else {
       setAuthMsg("Check your email to confirm, then sign in.");
     }
   };
-  // Step 2 of sign-up: check the 6-digit code from the email.
+
   const verifySignupCode = async (e) => {
     e.preventDefault();
     const client = await getSupabase();
@@ -189,15 +156,13 @@ export default function App() {
     if (error) { setAuthMsg(error.message); return; }
     const verifiedUser = data.user || data.session?.user;
     if (verifiedUser) {
-      resetToBlank();
-      setUser(verifiedUser);
+      resetToBlank(); setUser(verifiedUser);
       const c = await getSupabase();
       if (c) await saveSettingsRow(c.schema(SUPABASE_SCHEMA), verifiedUser.id, { monthly_income: 0, savings_goal: 0, opening_balance: 0 });
-      setAuthStep("form");
-      setVerifyCode("");
-      setAuthMsg("Email verified. Welcome!");
+      setAuthStep("form"); setVerifyCode(""); setAuthMsg("Email verified. Welcome!");
     }
   };
+
   const resendSignupCode = async () => {
     const client = await getSupabase();
     if (!client) { setAuthMsg("Supabase is not configured yet."); return; }
@@ -205,118 +170,130 @@ export default function App() {
     if (error) setAuthMsg(error.message);
     else setAuthMsg(`Sent a new code to ${authEmail}. Check your inbox and spam.`);
   };
+
   const signOut = async () => {
     const client = await getSupabase();
     if (client) await client.auth.signOut();
-    setUser(null);
-    resetToBlank();
-    setCloudLoaded(false);
+    setUser(null); resetToBlank(); setCloudLoaded(false);
     setSyncStatus(supabaseUrl ? "loading" : "not-configured");
   };
 
-  // Supabase load: only for the logged-in user, in expense_dashboard schema
+  // Supabase load with CRASH GUARD
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
     (async () => {
-      const client = await getSupabase();
-      if (!client) return;
-      setSyncStatus("syncing");
-      const db = client.schema(SUPABASE_SCHEMA);
-      const [expRes, billRes, secRes, itemRes, setRes] = await Promise.all([
-        db.from("expenses").select("*").eq("user_id", user.id).order("date", { ascending: false }),
-        db.from("bills").select("*").eq("user_id", user.id).order("due_date", { ascending: true }),
-        db.from("sections").select("*").eq("user_id", user.id).order("id", { ascending: true }),
-        db.from("section_items").select("*").eq("user_id", user.id).order("section_id", { ascending: true }).order("position", { ascending: true }),
-        db.from("settings").select("*").eq("user_id", user.id).maybeSingle(),
-      ]);
-      if (cancelled) return;
-      const firstErr = expRes.error || billRes.error || secRes.error || itemRes.error || setRes.error;
-      if (firstErr) { failSync(firstErr); setCloudLoaded(false); return; }
-      // This load replaces the view completely, even with
-      // empty results. A new user with no rows gets a blank dashboard.
-      setExpenses((expRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), category: r.category || "Other", date: r.date, frequency: r.frequency || "One-time" })));
-      setBills((billRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), dueDate: r.due_date, paid: !!r.paid })));
-      const itemsBySection = {};
-      (itemRes.data || []).forEach((r) => {
-        if (!itemsBySection[r.section_id]) itemsBySection[r.section_id] = [];
-        itemsBySection[r.section_id].push({ id: r.id, name: r.name, amount: Number(r.amount), note: r.note || "" });
-      });
-      setSections((secRes.data || []).map((s) => ({ id: s.id, title: s.title, items: itemsBySection[s.id] || [] })));
-      setMonthlyIncome(setRes.data && setRes.data.monthly_income ? Number(setRes.data.monthly_income) : 0);
-      setSavingsGoal(setRes.data && setRes.data.savings_goal ? Number(setRes.data.savings_goal) : 0);
-      setOpeningBalance(setRes.data && setRes.data.opening_balance ? Number(setRes.data.opening_balance) : 0);
-      setClosedMonths([]);
-      setSyncError("");
-      setSyncStatus("synced");
-      setCloudLoaded(true);
+      try {
+        const client = await getSupabase();
+        if (!client) return;
+        setSyncStatus("syncing");
+        const db = client.schema(SUPABASE_SCHEMA);
+
+        const [expRes, billRes, secRes, itemRes, setRes] = await Promise.all([
+          db.from("expenses").select("*").eq("user_id", user.id).order("date", { ascending: false }),
+          db.from("bills").select("*").eq("user_id", user.id).order("due_date", { ascending: true }),
+          db.from("sections").select("*").eq("user_id", user.id).order("id", { ascending: true }),
+          db.from("section_items").select("*").eq("user_id", user.id).order("section_id", { ascending: true }).order("position", { ascending: true }),
+          db.from("settings").select("*").eq("user_id", user.id).maybeSingle(),
+        ]);
+
+        if (cancelled) return;
+
+        const firstErr = expRes.error || billRes.error || secRes.error || itemRes.error || setRes.error;
+        if (firstErr) {
+          console.error("Supabase Load Error:", firstErr);
+          failSync(firstErr);
+          setCloudLoaded(true); // Still allow UI to render
+          return;
+        }
+
+        setExpenses((expRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), category: r.category || "Other", date: r.date, frequency: r.frequency || "One-time" })));
+        setBills((billRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), dueDate: r.due_date, paid: !!r.paid })));
+
+        const itemsBySection = {};
+        (itemRes.data || []).forEach((r) => {
+          if (!itemsBySection[r.section_id]) itemsBySection[r.section_id] = [];
+          itemsBySection[r.section_id].push({ id: r.id, name: r.name, amount: Number(r.amount), note: r.note || "" });
+        });
+
+        setSections((secRes.data || []).map((s) => ({ id: s.id, title: s.title, items: itemsBySection[s.id] || [] })));
+        setMonthlyIncome(setRes.data && setRes.data.monthly_income ? Number(setRes.data.monthly_income) : 0);
+        setSavingsGoal(setRes.data && setRes.data.savings_goal ? Number(setRes.data.savings_goal) : 0);
+        setOpeningBalance(setRes.data && setRes.data.opening_balance ? Number(setRes.data.opening_balance) : 0);
+
+        setClosedMonths([]);
+        setSyncError("");
+        setSyncStatus("synced");
+        setCloudLoaded(true);
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Fatal App Sync Error:", err);
+        setSyncError(err.message || "Failed to connect.");
+        setSyncStatus("error");
+        setCloudLoaded(true);
+      }
     })();
     return () => { cancelled = true; };
   }, [user]);
 
-  const syncNow = async () => {
-    const client = await getSupabase();
-    if (!client) { alert("Supabase is not set up yet. Run supabase-schema.sql, add .env keys, run npm install @supabase/supabase-js, and restart."); return; }
-    if (!user) { alert("Sign in first. Your data lives in Supabase under your account only."); return; }
-    setSyncStatus("syncing");
-    const db = client.schema(SUPABASE_SCHEMA);
-    await db.from("expenses").delete().eq("user_id", user.id);
-    const expPayload = expenses.map((e) => ({ user_id: user.id, title: e.title, amount: e.amount, category: e.category, date: e.date, frequency: e.frequency || "One-time" }));
-    const { error: expErr } = await db.from("expenses").insert(expPayload);
-    if (expErr) { failSync(expErr); return; }
-    await db.from("bills").delete().eq("user_id", user.id);
-    const billPayload = bills.map((b) => ({ user_id: user.id, title: b.title, amount: b.amount, due_date: b.dueDate, paid: !!b.paid }));
-    const { error: billErr } = await db.from("bills").insert(billPayload);
-    if (billErr) { failSync(billErr); return; }
-    const { error: setErr } = await saveSettingsRow(db, user.id, { monthly_income: monthlyIncome, savings_goal: savingsGoal, opening_balance: openingBalance });
-    if (setErr) { failSync(setErr); return; }
-    await db.from("section_items").delete().neq("id", 0);
-    await db.from("sections").delete().eq("user_id", user.id);
-    for (const section of sections) {
-      const { data: secData, error: secErr } = await db.from("sections").insert({ user_id: user.id, title: section.title }).select("id").single();
-      if (secErr || !secData) { failSync(secErr || new Error("Could not create section")); return; }
-      if (section.items.length > 0) {
-        const itemPayload = section.items.map((item, idx) => ({ section_id: secData.id, user_id: user.id, name: item.name, amount: Number(item.amount) || 0, note: item.note || "", position: idx }));
-        await db.from("section_items").insert(itemPayload);
-      }
-    }
-    setSyncStatus("synced");
-  };
-
-  // Save bills, sections and settings to Supabase. Expenses are saved
-  // per-item by syncInsert / syncDelete / syncUpdate, so this does not touch them.
   const saveCloudMeta = async () => {
     const client = await getSupabase();
     if (!client || !user) return false;
     setSyncStatus("saving");
     const db = client.schema(SUPABASE_SCHEMA);
-    const { error: setErr } = await saveSettingsRow(db, user.id, { monthly_income: monthlyIncome, savings_goal: savingsGoal, opening_balance: openingBalance });
-    if (setErr) { failSync(setErr); return false; }
-    await db.from("bills").delete().eq("user_id", user.id);
-    const billPayload = bills.map((b) => ({ user_id: user.id, title: b.title, amount: b.amount, due_date: b.dueDate, paid: !!b.paid }));
-    if (billPayload.length > 0) { const { error: billErr } = await db.from("bills").insert(billPayload); if (billErr) { failSync(billErr); return false; } }
-    await db.from("section_items").delete().eq("user_id", user.id);
-    await db.from("sections").delete().eq("user_id", user.id);
-    for (const section of sections) {
-      const { data: secData, error: secErr } = await db.from("sections").insert({ user_id: user.id, title: section.title }).select("id").single();
-      if (secErr || !secData) { failSync(secErr || new Error("Could not create section")); return false; }
-      if (section.items.length > 0) {
-        const itemPayload = section.items.map((item, idx) => ({ section_id: secData.id, user_id: user.id, name: item.name, amount: Number(item.amount) || 0, note: item.note || "", position: idx }));
-        await db.from("section_items").insert(itemPayload);
+
+    try {
+      const { error: setErr } = await saveSettingsRow(db, user.id, { monthly_income: monthlyIncome, savings_goal: savingsGoal, opening_balance: openingBalance });
+      if (setErr) { failSync(setErr); return false; }
+
+      await db.from("bills").delete().eq("user_id", user.id);
+      const billPayload = bills.map((b) => ({ user_id: user.id, title: b.title, amount: b.amount, due_date: b.dueDate, paid: !!b.paid }));
+      if (billPayload.length > 0) { const { error: billErr } = await db.from("bills").insert(billPayload); if (billErr) { failSync(billErr); return false; } }
+
+      await db.from("section_items").delete().eq("user_id", user.id);
+      await db.from("sections").delete().eq("user_id", user.id);
+      for (const section of sections) {
+        const { data: secData, error: secErr } = await db.from("sections").insert({ user_id: user.id, title: section.title }).select("id").single();
+        if (secErr || !secData) { failSync(secErr || new Error("Could not create section")); return false; }
+        if (section.items.length > 0) {
+          const itemPayload = section.items.map((item, idx) => ({ section_id: secData.id, user_id: user.id, name: item.name, amount: Number(item.amount) || 0, note: item.note || "", position: idx }));
+          await db.from("section_items").insert(itemPayload);
+        }
       }
+      setSyncStatus("synced");
+      return true;
+    } catch (err) {
+      failSync(err);
+      return false;
     }
-    setSyncStatus("synced");
-    return true;
   };
-  // Auto-save: after the cloud load finishes, any change to bills,
-  // sections, income or goal is saved to Supabase automatically,
-  // 800ms after you stop changing it. No Sync button needed.
+
   useEffect(() => {
     if (!user || !cloudLoaded) return;
     const t = setTimeout(() => { saveCloudMeta(); }, 800);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bills, sections, monthlyIncome, savingsGoal, openingBalance, user, cloudLoaded]);
+
+  const syncNow = async () => {
+    const client = await getSupabase();
+    if (!client) { alert("Supabase is not set up yet."); return; }
+    if (!user) { alert("Sign in first."); return; }
+    setSyncStatus("syncing");
+    const db = client.schema(SUPABASE_SCHEMA);
+
+    try {
+      await db.from("expenses").delete().eq("user_id", user.id);
+      const expPayload = expenses.map((e) => ({ user_id: user.id, title: e.title, amount: e.amount, category: e.category, date: e.date, frequency: e.frequency || "One-time" }));
+      if (expPayload.length > 0) {
+        const { error: expErr } = await db.from("expenses").insert(expPayload);
+        if (expErr) { failSync(expErr); return; }
+      }
+      await saveCloudMeta();
+      setSyncStatus("synced");
+    } catch (err) {
+      failSync(err);
+    }
+  };
 
   const syncInsert = async (expense) => {
     const client = await getSupabase(); if (!client || !user) return;
@@ -351,12 +328,10 @@ export default function App() {
   }, [monthExpenses]);
 
   const topCategory = byCategory.length ? [...byCategory].sort((a, b) => b.value - a.value)[0] : null;
-  const topPct = total > 0 && topCategory ? Math.round((topCategory.value / total) * 100) : 0;
   const biggest = monthExpenses.length ? [...monthExpenses].sort((a, b) => b.amount - a.amount)[0] : null;
   const overBudget = categories.filter((c) => (byCategory.find((x) => x.name === c)?.value || 0) > budgets[c]);
   const titleCounts = {};
   expenses.forEach((e) => { titleCounts[e.title] = (titleCounts[e.title] || 0) + 1; });
-  const months = ["All", ...new Set([...expenses.map((e) => e.date.slice(0, 7)), ...(monthFilter !== "All" ? [monthFilter] : [])])];
 
   const filtered = useMemo(() => {
     let list = monthExpenses.filter((e) => {
@@ -371,7 +346,6 @@ export default function App() {
     return list;
   }, [monthExpenses, search, filter, sortBy]);
 
-  // Two boxes: Fixed repeats every month, Flexible is one-off.
   const isFixedExpense = (e) => e.frequency && e.frequency !== "One-time";
   const fixedList = filtered.filter(isFixedExpense);
   const flexList = filtered.filter((e) => !isFixedExpense(e));
@@ -387,14 +361,9 @@ export default function App() {
     { month: "Nov", spent: Number(total.toFixed(2)), income: monthlyIncome },
   ];
 
-  const daysUntil = (due) => {
-    const today = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00");
-    const d = new Date(due + "T00:00:00");
-    return Math.ceil((d - today) / 86400000);
-  };
   const unpaidBills = bills.filter((b) => !b.paid);
   const unpaidTotal = unpaidBills.reduce((s, b) => s + Number(b.amount || 0), 0);
-  const sortedBills = [...bills].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
   const addBill = (e) => {
     e.preventDefault();
     const num = Number(billAmount);
@@ -405,6 +374,7 @@ export default function App() {
   };
   const toggleBill = (id) => setBills((prev) => prev.map((b) => (b.id === id ? { ...b, paid: !b.paid } : b)));
   const deleteBill = (id) => setBills((prev) => prev.filter((b) => b.id !== id));
+
   const addDueBillsAsExpenses = () => {
     const todayStr = new Date().toISOString().slice(0, 10);
     const due = bills.filter((b) => !b.paid && b.dueDate <= todayStr);
@@ -434,6 +404,7 @@ export default function App() {
     syncInsert(newExp);
     logHistory("Expense added", `${cleanTitle} $${num}`);
   };
+
   const addExpense = (e, force = false) => {
     e.preventDefault();
     const cleanTitle = title.trim();
@@ -441,20 +412,21 @@ export default function App() {
     if (!cleanTitle) { setError("Add a title first."); return; }
     if (!num || num <= 0) { setError("Amount must be more than $0."); return; }
     if (num > 100000) { setError("That amount looks like a typo, max is $100,000."); return; }
-    if (isMonthClosed(date.slice(0, 7))) { setError(`That month is closed and locked. Reopen it to add expenses.`); return; }
+    if (isMonthClosed(date.slice(0, 7))) { setError(`That month is closed and locked.`); return; }
     const dup = expenses.find((x) => x.title.toLowerCase() === cleanTitle.toLowerCase() && x.amount === num && x.date === date);
-    if (dup && !force) { setPendingDuplicate({ title: cleanTitle, amount: num, date }); setError(`This looks like a duplicate of "${dup.title}" $${dup.amount} on ${dup.date}.`); return; }
+    if (dup && !force) { setPendingDuplicate({ title: cleanTitle, amount: num, date }); setError(`Duplicate of "${dup.title}" $${dup.amount}.`); return; }
     setError(""); setPendingDuplicate(null);
     doAddExpense(cleanTitle, num, category, date, frequency);
     setTitle(""); setAmount(""); setFrequency("One-time");
   };
+
   const quickAdd = (e) => {
     e.preventDefault();
     const num = Number(quickAmount);
     const t = quickTitle.trim() || "Quick expense";
     if (!num || num <= 0) { setError("Quick add needs an amount over $0."); return; }
     const d = new Date().toISOString().slice(0, 10);
-    if (isMonthClosed(d.slice(0, 7))) { setError("This month is closed and locked."); return; }
+    if (isMonthClosed(d.slice(0, 7))) { setError("This month is closed."); return; }
     doAddExpense(t, num, quickCategory, d);
     setQuickAmount(""); setQuickTitle("");
   };
@@ -462,24 +434,27 @@ export default function App() {
   const deleteExpense = (id) => {
     const found = expenses.find((e) => e.id === id);
     if (!found) return;
-    if (isMonthClosed(found.date.slice(0, 7))) { setError("That month is closed and locked."); return; }
+    if (isMonthClosed(found.date.slice(0, 7))) { setError("That month is closed."); return; }
     setExpenses((prev) => prev.filter((e) => e.id !== id));
     syncDelete(id);
     logHistory("Expense deleted", `${found.title} $${found.amount}`);
     setLastDeleted(found);
   };
+
   const undoDelete = () => {
     if (!lastDeleted) return;
     setExpenses((prev) => [lastDeleted, ...prev]);
     setLastDeleted(null);
   };
+
   const startEdit = (e) => {
-    if (isMonthClosed(e.date.slice(0, 7))) { setError("That month is closed and locked."); return; }
+    if (isMonthClosed(e.date.slice(0, 7))) { setError("That month is closed."); return; }
     setEditingId(e.id); setEditTitle(e.title); setEditAmount(String(e.amount)); setEditCategory(e.category); setEditDate(e.date); setEditFrequency(e.frequency || "One-time");
   };
+
   const saveEdit = () => {
     const num = Number(editAmount);
-    if (!editTitle.trim() || !num || num <= 0) { setError("Edit needs a title and amount over $0."); return; }
+    if (!editTitle.trim() || !num || num <= 0) { setError("Edit needs a title and amount."); return; }
     const updated = { id: editingId, title: editTitle.trim(), amount: num, category: editCategory, date: editDate, frequency: editFrequency };
     setExpenses((prev) => prev.map((x) => (x.id === editingId ? updated : x)));
     syncUpdate(updated);
@@ -492,14 +467,15 @@ export default function App() {
     const rows = expenses.map((e) => `"${e.title.replace(/"/g, '""')}",${e.amount},${e.category},${e.date},${e.frequency || "One-time"}`).join("\n");
     const blob = new Blob([header + rows], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "expenses.csv"; a.click();
+    const a = document.createElement("a"); a.href = url; a.download = "expenses.csv"; a.click();
     URL.revokeObjectURL(url);
   };
+
   const parseCSVLine = (line) => {
     const m = line.match(/"([^"]*)"|[^,]+/g) || [];
     return m.map((s) => s.replace(/^"|"$/g, "").trim());
   };
+
   const importCSV = async (ev) => {
     const file = ev.target.files && ev.target.files[0];
     if (!file) return;
@@ -515,18 +491,18 @@ export default function App() {
       rows.push({ id: Date.now() + Math.random(), title: parts[0] || "Imported", amount: amt, category: categories.includes(parts[2]) ? parts[2] : "Other", date: parts[3] || new Date().toISOString().slice(0, 10), frequency: frequencies.includes(parts[4]) ? parts[4] : "One-time" });
     });
     if (rows.length) { setExpenses((prev) => [...rows, ...prev]); rows.forEach((r) => syncInsert(r)); }
-    setImportMsg(rows.length ? `Imported ${rows.length} real expenses from CSV.` : "No valid rows found in that CSV.");
+    setImportMsg(rows.length ? `Imported ${rows.length} expenses.` : "No valid rows found.");
     ev.target.value = "";
   };
+
   const backupJSON = () => {
     const data = { exportedAt: new Date().toISOString(), monthlyIncome, savingsGoal, openingBalance, expenses, sections, bills, closedMonths };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "money-dashboard-backup.json"; a.click();
-    URL.revokeObjectURL(url);
-    setImportMsg("Backup downloaded as money-dashboard-backup.json");
+    const a = document.createElement("a"); a.href = url; a.download = "money-dashboard-backup.json"; a.click();
+    URL.revokeObjectURL(url); setImportMsg("Backup downloaded.");
   };
+
   const restoreJSON = async (ev) => {
     const file = ev.target.files && ev.target.files[0];
     if (!file) return;
@@ -551,6 +527,7 @@ export default function App() {
     } catch { setImportMsg("That backup file could not be read."); }
     ev.target.value = "";
   };
+
   const resetAll = async () => {
     if (!window.confirm("Start blank again? This clears all your real expenses, bills and sections in Supabase.")) return;
     setExpenses([]); setBills([]); setSections([]); setClosedMonths([]); setLastDeleted(null);
@@ -564,17 +541,20 @@ export default function App() {
     }
     logHistory("Reset", "Started blank again");
   };
+
   const closeMonth = () => {
-    if (monthFilter === "All") { setError("Pick a calculation month first, then mark it done."); return; }
-    if (!closedMonths.includes(monthFilter)) { setClosedMonths((prev) => [...prev, monthFilter]); logHistory("Month done", `${monthFilter} marked as done and locked`); }
+    if (monthFilter === "All") { setError("Pick a calculation month first."); return; }
+    if (!closedMonths.includes(monthFilter)) { setClosedMonths((prev) => [...prev, monthFilter]); logHistory("Month done", `${monthFilter} locked`); }
   };
+
   const reopenMonth = () => {
     if (monthFilter === "All") return;
     setClosedMonths((prev) => prev.filter((m) => m !== monthFilter));
-    logHistory("Month reopened", `${monthFilter} reopened for editing`);
+    logHistory("Month reopened", `${monthFilter} reopened`);
   };
 
   const sectionTotal = (section) => section.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+
   const addSection = () => {
     const name = newSectionTitle.trim();
     if (!name) return;
@@ -587,22 +567,22 @@ export default function App() {
     }]);
     setNewSectionTitle("");
   };
-  const updateSectionTitle = (sectionId, newTitle) => {
-    setSections((prev) => prev.map((s) => (s.id === sectionId ? { ...s, title: newTitle } : s)));
-  };
+
+  const updateSectionTitle = (sectionId, newTitle) => setSections((prev) => prev.map((s) => (s.id === sectionId ? { ...s, title: newTitle } : s)));
+
   const updateItem = (sectionId, itemId, field, value) => {
     setSections((prev) => prev.map((s) => s.id !== sectionId ? s : { ...s, items: s.items.map((item) => item.id === itemId ? { ...item, [field]: field === "amount" ? Number(value) || 0 : value } : item) }));
   };
-  const addItemToSection = (sectionId) => {
-    setSections((prev) => prev.map((s) => s.id === sectionId ? { ...s, items: [...s.items, { id: Date.now(), name: `Person ${s.items.length + 1}`, amount: 0, note: "" }] } : s));
-  };
-  const deleteItemFromSection = (sectionId, itemId) => {
-    setSections((prev) => prev.map((s) => (s.id === sectionId ? { ...s, items: s.items.filter((i) => i.id !== itemId) } : s)));
-  };
+
+  const addItemToSection = (sectionId) => setSections((prev) => prev.map((s) => s.id === sectionId ? { ...s, items: [...s.items, { id: Date.now(), name: `Person ${s.items.length + 1}`, amount: 0, note: "" }] } : s));
+
+  const deleteItemFromSection = (sectionId, itemId) => setSections((prev) => prev.map((s) => (s.id === sectionId ? { ...s, items: s.items.filter((i) => i.id !== itemId) } : s)));
+
   const deleteSection = (sectionId) => {
     if (!window.confirm("Delete this whole section?")) return;
     setSections((prev) => prev.filter((s) => s.id !== sectionId));
   };
+
   const addSectionTotalToMain = (section) => {
     const stotal = sectionTotal(section);
     if (stotal <= 0) return;
@@ -612,11 +592,9 @@ export default function App() {
   };
   const sectionTotals = sections.map((s) => ({ title: s.title, total: sectionTotal(s) }));
 
-  // SUPABASE ONLY: the dashboard lives behind the login screen.
-  // Features are hardcoded in this file, Supabase only stores the data.
   if (!user) {
     return (
-      <div className={`app login-page ${darkMode ? "dark" : ""}`}>
+      <div className={`app login-page ${darkMode ? "dark" : ""}`} style={{ zIndex: 10 }}>
         <ThreeBackground dark={darkMode} />
         <div className="login-top">
           <div className="login-logo">
@@ -656,7 +634,7 @@ export default function App() {
               <>
                 <h2>{authMode === "signup" ? "Create your account" : "Welcome back"}</h2>
                 <p>{authMode === "signup" ? "Sign up once, then we will email you a 6-digit code to verify your email." : "Sign in to see your expenses and add new ones."}</p>
-                {!supabaseUrl && <div className="form-error">Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file, run npm install @supabase/supabase-js, and restart npm run dev.</div>}
+                {!supabaseUrl && <div className="form-error">Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file.</div>}
                 <form onSubmit={signInOrUp} className="login-form">
                   <div className="login-field">
                     <label htmlFor="login-email">Email</label>
@@ -672,7 +650,7 @@ export default function App() {
                 <button type="button" className="login-toggle" onClick={() => setAuthMode(authMode === "signup" ? "signin" : "signup")}>{authMode === "signup" ? "Have an account? Sign in" : "No account? Sign up"}</button>
               </>
             )}
-            <p className="login-note"><Lock size={13} /> Your data lives in Supabase only, under your account. Nothing is stored on this device.</p>
+            <p className="login-note"><Lock size={13} /> Your data lives in Supabase only, under your account.</p>
           </div>
         </div>
         <div className="login-foot">Money Dashboard - a monthly expense tracker</div>
@@ -680,7 +658,6 @@ export default function App() {
     );
   }
 
-  // One transaction row, used by both the Fixed and the Flexible box.
   const expenseRow = (e) => (
     <div key={e.id} className="row" style={{ alignItems: "flex-start" }}>
       {editingId === e.id ? (
@@ -712,13 +689,13 @@ export default function App() {
   );
 
   return (
-    <div className={`app ${darkMode ? "dark" : ""}`}>
+    <div className={`app ${darkMode ? "dark" : ""}`} style={{ position: "relative", zIndex: 10 }}>
       <ThreeBackground dark={darkMode} />
       <header>
         <div className="header-top">
           <div>
             <h1>Money Dashboard</h1>
-            <p>{expenses.length === 0 ? `Welcome, ${user.email} - your dashboard is empty, start with your real numbers` : `Welcome back, ${user.email} - ${daysLeft} days left this month - Projected spend: $${projected}`}</p>
+            <p>{expenses.length === 0 ? `Welcome, ${user.email}` : `Welcome back, ${user.email} - ${daysLeft} days left - Projected: $${projected}`}</p>
             <p className="live-date">{liveNow.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} - {liveNow.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</p>
           </div>
           <div className="badge">Signed in: {user.email} - Supabase: {syncStatus}</div>
@@ -737,14 +714,8 @@ export default function App() {
       {syncStatus === "error" && (
         <div className="alert" style={{ background: "#fef2f2", color: "#991b1b", borderColor: "#fca5a5" }}>
           <AlertTriangle size={18} />
-          <span><strong>Supabase error:</strong> {syncError || "Could not load or save your data."} Nothing is being saved to Supabase right now.
-            {syncError.includes("foreign key constraint") && syncError.includes("user_id") && (
-              <> Your sign-in session does not match this Supabase project - the login id the browser is holding is not in this project's user list. Sign out and sign in again to get a fresh session.</>
-            )}
-          </span>
-          {syncError.includes("foreign key constraint") && syncError.includes("user_id")
-            ? <button className="pill" onClick={signOut}>Sign out and sign in again</button>
-            : <button className="pill" onClick={() => window.location.reload()}>Try again</button>}
+          <span><strong>Supabase error:</strong> {syncError || "Could not load or save your data."} Nothing is being saved to Supabase right now.</span>
+          <button className="pill" onClick={() => window.location.reload()}>Try again</button>
         </div>
       )}
 
@@ -754,13 +725,13 @@ export default function App() {
           <span>
             {overBudget.length > 0 ? `Over budget in: ${overBudget.join(", ")}. ` : ""}
             {balance < 200 ? `Low balance, only $${balance.toFixed(2)} left. ` : ""}
-            {projected > monthlyIncome && monthlyIncome > 0 ? `At this pace you will spend $${projected} this month, over your income.` : ""}
+            {projected > monthlyIncome && monthlyIncome > 0 ? `At this pace you will spend $${projected} this month.` : ""}
           </span>
         </div>
       )}
       {currentMonthClosed && (
         <div className="alert" style={{ background: "#f1f5f9", borderColor: "#cbd5e1", color: "#334155" }}>
-          <Lock size={18} /><span>This month ({monthFilter}) is closed and locked. Reopen it to add, edit or delete expenses in it.</span>
+          <Lock size={18} /><span>This month ({monthFilter}) is closed and locked.</span>
         </div>
       )}
 
@@ -780,7 +751,6 @@ export default function App() {
           <button type="submit">Add Today</button>
         </form>
       </div>
-
 
       <h2 className="section-heading">All Expenses</h2>
       <div className="bottom">
@@ -802,10 +772,10 @@ export default function App() {
           <select value={frequency} onChange={(e) => setFrequency(e.target.value)} title="How often does this repeat?">{frequencies.map((f) => <option key={f}>{f}</option>)}</select>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} title="Start date - which month this belongs to" />
           <button type="submit">Add Expense</button>
-          <small style={{ color: "#64748b" }}>Pick a repeat - Monthly, Weekly or Biweekly goes in the Fixed box, One-time goes in the Flexible box. The date is the start date.</small>
+          <small style={{ color: "#64748b" }}>Pick a repeat - Monthly, Weekly or Biweekly goes in the Fixed box, One-time goes in the Flexible box.</small>
         </form>
         <div className="card">
-          <h3>Your spending <small>{filtered.length} shown - search and sort apply to both boxes below</small></h3>
+          <h3>Your spending <small>{filtered.length} shown</small></h3>
           <div className="toolbar">
             <div className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." /></div>
             <select value={filter} onChange={(e) => setFilter(e.target.value)}><option>All</option>{categories.map((c) => <option key={c}>{c}</option>)}</select>
@@ -813,7 +783,7 @@ export default function App() {
               <option value="newest">Newest</option><option value="oldest">Oldest</option><option value="highest">Highest $</option><option value="lowest">Lowest $</option>
             </select>
           </div>
-          <p className="box-note">Fixed repeats every month - rent, transport, bills. Flexible is one-off - an extra product, a treat, anything that is not fixed.</p>
+          <p className="box-note">Fixed repeats every month. Flexible is one-off.</p>
           <div className="box-total">Fixed: ${fixedTotal.toFixed(2)} / month &nbsp;•&nbsp; Flexible total: ${flexTotal.toFixed(2)}</div>
         </div>
       </div>
@@ -821,25 +791,25 @@ export default function App() {
       <div className="two-boxes">
         <div className="card fixed-box">
           <h3>Fixed - every month <small>{fixedList.length} expenses - ${fixedTotal.toFixed(2)} a month</small></h3>
-          <p className="box-note">Rent, transport, bills - the ones that come back every month.</p>
-          {fixedList.length === 0 && <p style={{ color: "#64748b" }}>No fixed expenses yet. Add one above and pick Monthly, Weekly or Biweekly as the repeat.</p>}
+          <p className="box-note">Rent, transport, bills.</p>
+          {fixedList.length === 0 && <p style={{ color: "#64748b" }}>No fixed expenses yet.</p>}
           {fixedList.map(expenseRow)}
         </div>
         <div className="card flex-box">
           <h3>Flexible - one-off <small>{flexList.length} expenses - ${flexTotal.toFixed(2)}</small></h3>
-          <p className="box-note">One-off buys and extra things - anything that is not fixed.</p>
-          {flexList.length === 0 && <p style={{ color: "#64748b" }}>No flexible expenses yet. Add one above and leave the repeat as One-time.</p>}
+          <p className="box-note">One-off buys.</p>
+          {flexList.length === 0 && <p style={{ color: "#64748b" }}>No flexible expenses yet.</p>}
           {flexList.map(expenseRow)}
         </div>
       </div>
 
       <div className="card sections-area">
-        <h3>My Expense Sections <small>Create any block you want - School Transport, Groceries, Rent, etc.</small></h3>
+        <h3>My Expense Sections <small>Create any block you want</small></h3>
         <div className="add-section-row">
-          <input value={newSectionTitle} onChange={(e) => setNewSectionTitle(e.target.value)} placeholder="New section name, e.g. School Transport" onKeyDown={(e) => { if (e.key === "Enter") addSection(); }} />
+          <input value={newSectionTitle} onChange={(e) => setNewSectionTitle(e.target.value)} placeholder="New section name" onKeyDown={(e) => { if (e.key === "Enter") addSection(); }} />
           <button onClick={addSection}><Plus size={16} /> Add Section</button>
         </div>
-        {sections.length === 0 && <p style={{ color: "#64748b" }}>No sections yet. Type a name above and click Add Section.</p>}
+        {sections.length === 0 && <p style={{ color: "#64748b" }}>No sections yet.</p>}
         {sections.map((section) => {
           const stotal = sectionTotal(section);
           const avg = section.items.length ? stotal / section.items.length : 0;
@@ -895,20 +865,8 @@ export default function App() {
                   <small>rows in this section</small>
                 </div>
                 <button onClick={() => addSectionTotalToMain(section)} disabled={stotal <= 0}>
-                  Add ${stotal.toFixed(2)} to main expenses
+                  Add ${stotal.toFixed(2)} to main
                 </button>
-              </div>
-              <div className="split-box">
-                <strong>Split equally: ${avg.toFixed(2)} each</strong>
-                {section.items.map((item) => {
-                  const diff = (Number(item.amount) || 0) - avg;
-                  return (
-                    <div key={item.id} className="split-row">
-                      <span>{item.name} paid ${(Number(item.amount) || 0).toFixed(2)}</span>
-                      <span>{diff > 0.01 ? `is owed $${diff.toFixed(2)}` : diff < -0.01 ? `owes $${Math.abs(diff).toFixed(2)}` : "settled"}</span>
-                    </div>
-                  );
-                })}
               </div>
             </div>
           );
@@ -918,7 +876,7 @@ export default function App() {
       <div className="charts">
         <div className="card">
           <h3>Spending Trend <small>Income vs spent</small></h3>
-          {expenses.length === 0 ? <p style={{ color: "#64748b" }}>No data yet - add real expenses to see your trend.</p> : (
+          {expenses.length === 0 ? <p style={{ color: "#64748b" }}>No data yet.</p> : (
             <ResponsiveContainer width="100%" height={280}>
               <AreaChart data={monthlyData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
