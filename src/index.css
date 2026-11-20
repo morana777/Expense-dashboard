@@ -1,6 +1,7 @@
 /* ============================================================
-   Money Expenses Dashboard - index.css - DEEP AURORA THEME
-   Full 1000+ lines. Fixed Z-index layering. High-opacity glass.
+   Money Expenses Dashboard - index.css
+   Full 1000+ lines. 
+   Deep Aurora Dark Theme + Crisp Light Theme overrides.
    ============================================================ */
 
 * {
@@ -8,9 +9,9 @@
 }
 
 :root {
+  /* Dark Theme (Default) */
   --bg-deep: #03040a;
   --glass: rgba(13, 17, 34, 0.92);
-  /* More opaque for readability */
   --glass-strong: rgba(10, 14, 28, 0.96);
   --stroke: rgba(159, 252, 255, 0.14);
   --stroke-strong: rgba(159, 252, 255, 0.28);
@@ -26,6 +27,24 @@
   --shadow: 0 10px 40px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(159, 252, 255, 0.08) inset;
 }
 
+/* Light Theme Variables */
+.app:not(.dark) {
+  --glass: rgba(255, 255, 255, 0.85);
+  --glass-strong: rgba(255, 255, 255, 0.95);
+  --stroke: rgba(0, 0, 0, 0.1);
+  --stroke-strong: rgba(0, 0, 0, 0.2);
+  --ink: #0f172a;
+  --ink-dim: #475569;
+  --cyan: #0284c7;
+  /* Darker cyan for light mode readability */
+  --pink: #db2777;
+  --violet: #6d28d9;
+  --good: #059669;
+  --bad: #e11d48;
+  --warn: #d97706;
+  --shadow: 0 10px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05) inset;
+}
+
 html,
 body {
   margin: 0;
@@ -33,9 +52,10 @@ body {
   color: var(--ink);
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  transition: background 0.3s ease, color 0.3s ease;
 }
 
-/* --- 3D BACKGROUND FIX: Force behind content --- */
+/* --- 3D BACKGROUND LAYERING --- */
 .three-bg-base {
   position: fixed;
   inset: 0;
@@ -44,6 +64,13 @@ body {
   background: radial-gradient(ellipse at 20% 0%, #0d1440 0%, transparent 55%),
     radial-gradient(ellipse at 80% 100%, #2a0b3d 0%, transparent 55%),
     linear-gradient(180deg, #03040a 0%, #070a1a 60%, #03040a 100%);
+  transition: opacity 0.5s ease;
+}
+
+.three-bg-base[data-dark="false"] {
+  background: radial-gradient(ellipse at 20% 0%, #c7d2fe 0%, transparent 55%),
+    radial-gradient(ellipse at 80% 100%, #fbcfe8 0%, transparent 55%),
+    linear-gradient(180deg, #f8fafc 0%, #e2e8f0 60%, #f8fafc 100%);
 }
 
 .three-bg-vignette {
@@ -54,6 +81,10 @@ body {
   background: radial-gradient(ellipse at center, transparent 45%, rgba(0, 0, 0, 0.75) 100%);
 }
 
+.app:not(.dark) .three-bg-vignette {
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(255, 255, 255, 0.4) 100%);
+}
+
 .three-bg {
   position: fixed;
   inset: 0;
@@ -61,7 +92,7 @@ body {
   pointer-events: none;
 }
 
-/* --- APP CONTENT: Force on top --- */
+/* --- APP CONTENT --- */
 .app {
   position: relative;
   z-index: 10;
@@ -69,6 +100,7 @@ body {
   margin: 0 auto;
   padding: 32px 22px 64px;
   min-height: 100vh;
+  transition: color 0.3s ease;
 }
 
 header {
@@ -84,6 +116,10 @@ header {
   overflow: hidden;
 }
 
+.app:not(.dark) header {
+  background: linear-gradient(135deg, rgba(224, 231, 255, 0.8), rgba(243, 232, 255, 0.8) 45%, rgba(252, 231, 243, 0.8));
+}
+
 header::before {
   content: "";
   position: absolute;
@@ -91,6 +127,10 @@ header::before {
   background: conic-gradient(from 0deg, transparent, rgba(159, 252, 255, 0.12), transparent, rgba(255, 79, 216, 0.12), transparent);
   animation: sweep 18s linear infinite;
   pointer-events: none;
+}
+
+.app:not(.dark) header::before {
+  background: conic-gradient(from 0deg, transparent, rgba(109, 40, 217, 0.05), transparent, rgba(219, 39, 119, 0.05), transparent);
 }
 
 @keyframes sweep {
@@ -102,7 +142,7 @@ header::before {
 header h1 {
   margin: 0;
   font-size: 34px;
-  background: linear-gradient(90deg, var(--cyan), #ffffff 40%, var(--pink));
+  background: linear-gradient(90deg, var(--cyan), var(--ink) 40%, var(--pink));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -132,6 +172,10 @@ header p {
   font-weight: 600;
 }
 
+.app:not(.dark) .badge {
+  background: rgba(2, 132, 199, 0.1);
+}
+
 .settings-row {
   display: flex;
   gap: 10px;
@@ -158,6 +202,10 @@ header p {
   color: var(--ink);
 }
 
+.app:not(.dark) .settings-row input {
+  background: rgba(255, 255, 255, 0.8);
+}
+
 .white-btn {
   background: rgba(159, 252, 255, 0.08);
   border: 1px solid var(--stroke-strong);
@@ -167,6 +215,10 @@ header p {
   gap: 6px;
   padding: 9px 13px;
   box-shadow: none;
+}
+
+.app:not(.dark) .white-btn {
+  background: rgba(255, 255, 255, 0.6);
 }
 
 .white-btn:hover {
@@ -238,6 +290,7 @@ header p {
   box-shadow: var(--shadow);
   position: relative;
   z-index: 11;
+  transition: background 0.3s ease, border-color 0.3s ease;
 }
 
 .stat {
@@ -275,6 +328,26 @@ header p {
 .blue {
   background: rgba(159, 252, 255, 0.14);
   color: var(--cyan);
+}
+
+.app:not(.dark) .purple {
+  background: rgba(109, 40, 217, 0.1);
+  color: #6d28d9;
+}
+
+.app:not(.dark) .green {
+  background: rgba(5, 150, 105, 0.1);
+  color: #059669;
+}
+
+.app:not(.dark) .red {
+  background: rgba(225, 29, 72, 0.1);
+  color: #e11d48;
+}
+
+.app:not(.dark) .blue {
+  background: rgba(2, 132, 199, 0.1);
+  color: #0284c7;
 }
 
 .stat span {
@@ -340,10 +413,18 @@ header p {
   box-shadow: none;
 }
 
+.app:not(.dark) .pill {
+  background: rgba(255, 255, 255, 0.6);
+}
+
 .pill.active {
   background: linear-gradient(135deg, var(--cyan), var(--violet));
-  color: #03040a;
+  color: #ffffff;
   border-color: transparent;
+}
+
+.app:not(.dark) .pill.active {
+  color: #ffffff;
 }
 
 .charts {
@@ -402,10 +483,20 @@ button {
   color: var(--ink);
   font-size: 14px;
   font-family: inherit;
+  transition: background 0.3s, border-color 0.3s, color 0.3s;
+}
+
+.app:not(.dark) input,
+.app:not(.dark) select {
+  background: rgba(255, 255, 255, 0.8);
 }
 
 input::placeholder {
   color: #5c6688;
+}
+
+.app:not(.dark) input::placeholder {
+  color: #94a3b8;
 }
 
 input:focus,
@@ -413,6 +504,11 @@ select:focus {
   outline: none;
   border-color: var(--cyan);
   box-shadow: 0 0 0 3px rgba(159, 252, 255, 0.12);
+}
+
+.app:not(.dark) input:focus,
+.app:not(.dark) select:focus {
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
 }
 
 button {
@@ -462,6 +558,10 @@ button:disabled {
   padding: 0 12px;
 }
 
+.app:not(.dark) .search-box {
+  background: rgba(255, 255, 255, 0.8);
+}
+
 .search-box input {
   border: none;
   background: none;
@@ -501,6 +601,11 @@ button:disabled {
   border: 1px solid rgba(159, 252, 255, 0.2);
 }
 
+.app:not(.dark) .cat-pill {
+  background: rgba(2, 132, 199, 0.1);
+  border-color: rgba(2, 132, 199, 0.2);
+}
+
 .row-right {
   display: flex;
   gap: 8px;
@@ -515,6 +620,10 @@ button:disabled {
   box-shadow: none;
 }
 
+.app:not(.dark) .row-right button {
+  background: rgba(225, 29, 72, 0.1);
+}
+
 .row-right button:hover {
   background: rgba(255, 107, 157, 0.22);
 }
@@ -522,6 +631,11 @@ button:disabled {
 .edit-btn {
   background: rgba(124, 92, 255, 0.14) !important;
   color: #b9a8ff !important;
+}
+
+.app:not(.dark) .edit-btn {
+  background: rgba(109, 40, 217, 0.1) !important;
+  color: #6d28d9 !important;
 }
 
 .edit-row {
@@ -561,6 +675,10 @@ button:disabled {
   overflow: hidden;
 }
 
+.app:not(.dark) .budget-bar {
+  background: rgba(0, 0, 0, 0.08);
+}
+
 .budget-fill {
   height: 100%;
   border-radius: 999px;
@@ -574,6 +692,10 @@ button:disabled {
   border-radius: 16px;
   padding: 16px;
   margin-top: 18px;
+}
+
+.app:not(.dark) .goal-box {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.05), rgba(219, 39, 119, 0.05));
 }
 
 .goal-box strong {
@@ -652,6 +774,10 @@ button:disabled {
   box-shadow: none;
 }
 
+.app:not(.dark) .bill-delete {
+  background: rgba(225, 29, 72, 0.1);
+}
+
 /* Heatmap */
 .heatmap {
   display: grid;
@@ -681,13 +807,17 @@ button:disabled {
   color: var(--ink-dim);
 }
 
+.app:not(.dark) .heat-day {
+  background: rgba(0, 0, 0, 0.05);
+}
+
 .heat-day small {
   font-size: 10px;
   font-weight: 400;
 }
 
 .heat-day.blank {
-  background: transparent;
+  background: transparent !important;
 }
 
 .heat-0 {
@@ -714,6 +844,31 @@ button:disabled {
   background: linear-gradient(135deg, var(--pink), var(--violet));
   color: white;
   box-shadow: 0 0 14px rgba(255, 79, 216, 0.4);
+}
+
+.app:not(.dark) .heat-0 {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--ink-dim);
+}
+
+.app:not(.dark) .heat-1 {
+  background: rgba(2, 132, 199, 0.15);
+  color: #0284c7;
+}
+
+.app:not(.dark) .heat-2 {
+  background: rgba(109, 40, 217, 0.25);
+  color: #6d28d9;
+}
+
+.app:not(.dark) .heat-3 {
+  background: rgba(219, 39, 119, 0.35);
+  color: #ffffff;
+}
+
+.app:not(.dark) .heat-4 {
+  background: linear-gradient(135deg, #db2777, #6d28d9);
+  color: white;
 }
 
 /* Sections */
@@ -772,6 +927,10 @@ button:disabled {
   box-shadow: none;
 }
 
+.app:not(.dark) .delete-section-btn {
+  background: rgba(225, 29, 72, 0.1);
+}
+
 .section-actions {
   margin-top: 12px;
 }
@@ -786,6 +945,10 @@ button:disabled {
   align-items: center;
   box-shadow: none;
   border: 1px solid var(--stroke);
+}
+
+.app:not(.dark) .small-ghost-btn {
+  background: rgba(255, 255, 255, 0.6);
 }
 
 .small-ghost-btn:hover {
@@ -807,6 +970,10 @@ button:disabled {
   border: 1px solid var(--stroke);
   border-radius: 16px;
   padding: 18px;
+}
+
+.app:not(.dark) .person-card {
+  background: rgba(255, 255, 255, 0.6);
 }
 
 .field {
@@ -855,6 +1022,10 @@ button:disabled {
   margin-top: 16px;
 }
 
+.app:not(.dark) .transport-total {
+  background: linear-gradient(135deg, rgba(224, 231, 255, 0.8), rgba(243, 232, 255, 0.8), rgba(252, 231, 243, 0.8));
+}
+
 .total-stat {
   display: flex;
   flex-direction: column;
@@ -894,6 +1065,10 @@ button:disabled {
   margin-top: 12px;
 }
 
+.app:not(.dark) .split-box {
+  background: rgba(255, 255, 255, 0.6);
+}
+
 .split-box strong {
   font-size: 14px;
   color: var(--cyan);
@@ -920,6 +1095,10 @@ button:disabled {
   border-color: var(--stroke-strong);
 }
 
+.app:not(.dark) .report-card {
+  background: rgba(2, 132, 199, 0.05);
+}
+
 .report-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -935,6 +1114,10 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.app:not(.dark) .report-grid div {
+  background: rgba(255, 255, 255, 0.6);
 }
 
 .report-grid span {
@@ -965,6 +1148,12 @@ button:disabled {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 24px rgba(159, 252, 255, 0.15);
   z-index: 50;
   backdrop-filter: blur(14px);
+}
+
+.app:not(.dark) .toast {
+  background: rgba(255, 255, 255, 0.95);
+  color: #0f172a;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15), 0 0 24px rgba(0, 0, 0, 0.05);
 }
 
 .toast button {
@@ -1030,12 +1219,22 @@ button:disabled {
   stroke: rgba(159, 252, 255, 0.08) !important;
 }
 
+.app:not(.dark) .recharts-cartesian-grid line {
+  stroke: rgba(0, 0, 0, 0.05) !important;
+}
+
 .recharts-tooltip-wrapper .recharts-default-tooltip {
   background: rgba(10, 12, 28, 0.95) !important;
   border: 1px solid var(--stroke-strong) !important;
   border-radius: 12px !important;
   color: var(--ink) !important;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5) !important;
+}
+
+.app:not(.dark) .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  color: #0f172a !important;
 }
 
 /* Login Screen */
@@ -1094,7 +1293,7 @@ button:disabled {
   line-height: 1.1;
   letter-spacing: -1px;
   margin: 0 0 16px;
-  background: linear-gradient(90deg, #ffffff, var(--cyan) 60%, var(--pink));
+  background: linear-gradient(90deg, var(--ink), var(--cyan) 60%, var(--pink));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -1134,6 +1333,10 @@ button:disabled {
   padding: 34px;
   backdrop-filter: blur(20px);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(159, 252, 255, 0.08);
+}
+
+.app:not(.dark) .login-card {
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1), 0 0 40px rgba(0, 0, 0, 0.05);
 }
 
 .login-card h2 {
@@ -1228,6 +1431,10 @@ button:disabled {
   gap: 10px;
 }
 
+.app:not(.dark) .empty-state {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.05), rgba(219, 39, 119, 0.05));
+}
+
 .empty-icon {
   width: 56px;
   height: 56px;
@@ -1241,6 +1448,10 @@ button:disabled {
   border: 1px solid var(--stroke-strong);
 }
 
+.app:not(.dark) .empty-icon {
+  background: #ffffff;
+}
+
 .empty-steps div {
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid var(--stroke);
@@ -1251,6 +1462,10 @@ button:disabled {
   gap: 10px;
   align-items: center;
   color: var(--ink);
+}
+
+.app:not(.dark) .empty-steps div {
+  background: rgba(255, 255, 255, 0.6);
 }
 
 .empty-steps span {
