@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, CartesianGrid, Legend } from "recharts";
-import { Wallet, TrendingUp, TrendingDown, PiggyBank, Search, Trash2, Target, Download, RotateCcw, AlertTriangle, Undo2, Plus, Pencil, Moon, Sun, CalendarDays, Upload, Printer, LogIn, LogOut, Zap, Lock, ShieldCheck, Settings, X, Mail, Key, Eye, EyeOff, DollarSign } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, PiggyBank, Search, Trash2, Target, Download, RotateCcw, AlertTriangle, Undo2, Plus, Pencil, Moon, Sun, CalendarDays, Upload, Printer, LogIn, LogOut, Zap, Lock, ShieldCheck, Settings, X, Mail, Key, Eye, EyeOff, DollarSign, CheckCircle } from "lucide-react";
 import ThreeBackground from "./ThreeBackground.jsx";
 
 const SUPABASE_SCHEMA = "expense_dashboard";
@@ -91,6 +91,7 @@ export default function App() {
   const [showPassword, setShowPassword] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState("");
   const [settingsError, setSettingsError] = useState("");
+  const [pendingConfirmation, setPendingConfirmation] = useState(null); // "email" or "password"
 
   const failSync = (err) => {
     const msg = err && err.message ? err.message : "Unknown Supabase error";
@@ -107,7 +108,7 @@ export default function App() {
     setExpenses([]); setBills([]); setSections([]);
     setMonthlyIncome(0); setSavingsGoal(0); setOpeningBalance(0);
     setClosedMonths([]); setHistory([]); setLastDeleted(null);
-    setPendingDuplicate(null); setError(""); setCurrency("USD");
+    setPendingDuplicate(null); setError(""); setCurrency("USD"); setPendingConfirmation(null);
   };
 
   useEffect(() => { try { localStorage.setItem("theme_dark", darkMode ? "true" : "false"); } catch { } }, [darkMode]);
@@ -127,16 +128,26 @@ export default function App() {
   const isMonthClosed = (monthStr) => monthStr !== "All" && closedMonths.includes(monthStr);
   const currentMonthClosed = isMonthClosed(monthFilter);
 
-  // Auth: get session on start
+  // Auth: get session on start and listen for changes
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const client = await getSupabase();
       if (!client) return;
+
       const { data } = await client.auth.getSession();
       if (!cancelled && data.session) setUser(data.session.user);
-      client.auth.onAuthStateChange((_event, session) => {
-        if (!cancelled) setUser(session ? session.user : null);
+
+      client.auth.onAuthStateChange((event, session) => {
+        if (!cancelled) {
+          setUser(session ? session.user : null);
+
+          // Detect when a user clicks the confirmation link in their email
+          if (event === "USER_UPDATED") {
+            setSettingsMsg("Your changes have been successfully confirmed!");
+            setPendingConfirmation(null);
+          }
+        }
       });
     })();
     return () => { cancelled = true; };
@@ -616,30 +627,61 @@ export default function App() {
 
   const currencySymbol = CURRENCIES.find(c => c.code === currency)?.symbol || "$";
 
-  // Settings Handlers
+  // Settings Handlers - Confirmation Flow
   const handleUpdateEmail = async (e) => {
     e.preventDefault();
     setSettingsMsg(""); setSettingsError("");
-    if (!newEmail || newEmail === user.email) { setSettingsError("Enter a new valid email."); return; }
+
+    if (!newEmail || newEmail === user.email) {
+      setSettingsError("Enter a new valid email.");
+      return;
+    }
+
     const client = await getSupabase();
     if (!client) return;
+
+    // Trigger the confirmation email to the NEW email address
     const { error } = await client.auth.updateUser({ email: newEmail });
-    if (error) { setSettingsError(error.message); return; }
-    setSettingsMsg(`Confirmation link sent to ${newEmail}. Check your inbox to confirm the change.`);
+
+    if (error) {
+      setSettingsError(error.message);
+      return;
+    }
+
+    setPendingConfirmation("email");
+    setSettingsMsg(`Confirmation link sent to ${newEmail}. Please check your inbox and click the link to finalize the change.`);
     setNewEmail("");
   };
 
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
     setSettingsMsg(""); setSettingsError("");
-    if (!newPassword || newPassword.length < 6) { setSettingsError("Password must be at least 6 characters."); return; }
-    if (newPassword !== confirmPassword) { setSettingsError("Passwords do not match."); return; }
+
+    if (!newPassword || newPassword.length < 6) {
+      setSettingsError("Password must be at least 6 characters.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setSettingsError("Passwords do not match.");
+      return;
+    }
+
     const client = await getSupabase();
     if (!client) return;
+
+    // Trigger the confirmation email to the CURRENT email address
     const { error } = await client.auth.updateUser({ password: newPassword });
-    if (error) { setSettingsError(error.message); return; }
-    setSettingsMsg("Password updated successfully.");
-    setNewPassword(""); setConfirmPassword("");
+
+    if (error) {
+      setSettingsError(error.message);
+      return;
+    }
+
+    setPendingConfirmation("password");
+    setSettingsMsg(`A confirmation link has been sent to ${user.email}. Please check your inbox and click the link to finalize the password change.`);
+    setNewPassword("");
+    setConfirmPassword("");
   };
 
   const handleDeleteAccount = async () => {
@@ -651,7 +693,6 @@ export default function App() {
     const client = await getSupabase();
     if (!client || !user) return;
 
-    // Delete data first
     const db = client.schema(SUPABASE_SCHEMA);
     await db.from("expenses").delete().eq("user_id", user.id);
     await db.from("bills").delete().eq("user_id", user.id);
@@ -659,9 +700,6 @@ export default function App() {
     await db.from("sections").delete().eq("user_id", user.id);
     await db.from("settings").delete().eq("user_id", user.id);
 
-    // Note: Deleting the actual auth user requires a service_role key on the backend,
-    // which we don't have in frontend. So we sign out and wipe local data.
-    // (In a real app, you'd call an RPC function or Edge Function to fully delete).
     await client.auth.signOut();
     resetToBlank();
     setUser(null);
@@ -789,6 +827,17 @@ export default function App() {
 
             {settingsMsg && <div className="alert" style={{ background: "rgba(94, 234, 212, 0.15)", color: "var(--good)", borderColor: "rgba(94, 234, 212, 0.3)" }}>{settingsMsg}</div>}
             {settingsError && <div className="form-error">{settingsError}</div>}
+
+            {pendingConfirmation === "email" && (
+              <div className="alert" style={{ background: "rgba(255, 209, 102, 0.15)", color: "var(--warn)", borderColor: "rgba(255, 209, 102, 0.3)" }}>
+                <AlertTriangle size={16} /> Please confirm the new email address to finalize the change.
+              </div>
+            )}
+            {pendingConfirmation === "password" && (
+              <div className="alert" style={{ background: "rgba(255, 209, 102, 0.15)", color: "var(--warn)", borderColor: "rgba(255, 209, 102, 0.3)" }}>
+                <AlertTriangle size={16} /> Please confirm the password change via the link sent to your email.
+              </div>
+            )}
 
             <form onSubmit={handleUpdateEmail} className="form" style={{ marginBottom: 24 }}>
               <div className="field">
