@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, CartesianGrid, Legend } from "recharts";
-import { Wallet, TrendingUp, TrendingDown, PiggyBank, Search, Trash2, Target, Download, RotateCcw, AlertTriangle, Undo2, Plus, Pencil, Moon, Sun, CalendarDays, Upload, Printer, LogIn, LogOut, Zap, Lock, ShieldCheck } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, PiggyBank, Search, Trash2, Target, Download, RotateCcw, AlertTriangle, Undo2, Plus, Pencil, Moon, Sun, CalendarDays, Upload, Printer, LogIn, LogOut, Zap, Lock, ShieldCheck, Settings, X, Mail, Key, Eye, EyeOff, DollarSign } from "lucide-react";
 import ThreeBackground from "./ThreeBackground.jsx";
 
 const SUPABASE_SCHEMA = "expense_dashboard";
@@ -22,12 +22,23 @@ const categories = ["Food", "Housing", "Transport", "Entertainment", "Shopping",
 const frequencies = ["One-time", "Daily", "Weekly", "Biweekly", "Monthly", "Quarterly", "Yearly"];
 const budgets = { Food: 300, Housing: 1000, Transport: 150, Entertainment: 100, Shopping: 250, Other: 100 };
 const COLORS = ["#9ffcff", "#ff4fd8", "#7c5cff", "#5eead4", "#f59e0b", "#94a3b8"];
+const CURRENCIES = [
+  { code: "USD", symbol: "$", label: "US Dollar" },
+  { code: "EUR", symbol: "€", label: "Euro" },
+  { code: "GBP", symbol: "£", label: "British Pound" },
+  { code: "JPY", symbol: "¥", label: "Japanese Yen" },
+  { code: "CAD", symbol: "C$", label: "Canadian Dollar" },
+  { code: "AUD", symbol: "A$", label: "Australian Dollar" },
+];
 
 export default function App() {
   const [expenses, setExpenses] = useState([]);
   const [monthlyIncome, setMonthlyIncome] = useState(0);
   const [savingsGoal, setSavingsGoal] = useState(0);
   const [openingBalance, setOpeningBalance] = useState(0);
+  const [currency, setCurrency] = useState("USD");
+  const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false);
+
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("Food");
@@ -72,6 +83,15 @@ export default function App() {
   const [quickTitle, setQuickTitle] = useState("");
   const [quickCategory, setQuickCategory] = useState("Food");
 
+  // Settings state
+  const [showSettings, setShowSettings] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [settingsMsg, setSettingsMsg] = useState("");
+  const [settingsError, setSettingsError] = useState("");
+
   const failSync = (err) => {
     const msg = err && err.message ? err.message : "Unknown Supabase error";
     setSyncError(msg); setSyncStatus("error"); console.error("Supabase error:", err);
@@ -87,7 +107,7 @@ export default function App() {
     setExpenses([]); setBills([]); setSections([]);
     setMonthlyIncome(0); setSavingsGoal(0); setOpeningBalance(0);
     setClosedMonths([]); setHistory([]); setLastDeleted(null);
-    setPendingDuplicate(null); setError("");
+    setPendingDuplicate(null); setError(""); setCurrency("USD");
   };
 
   useEffect(() => { try { localStorage.setItem("theme_dark", darkMode ? "true" : "false"); } catch { } }, [darkMode]);
@@ -176,6 +196,7 @@ export default function App() {
     if (client) await client.auth.signOut();
     setUser(null); resetToBlank(); setCloudLoaded(false);
     setSyncStatus(supabaseUrl ? "loading" : "not-configured");
+    setShowSettings(false);
   };
 
   // Supabase load with CRASH GUARD
@@ -203,7 +224,7 @@ export default function App() {
         if (firstErr) {
           console.error("Supabase Load Error:", firstErr);
           failSync(firstErr);
-          setCloudLoaded(true); // Still allow UI to render
+          setCloudLoaded(true);
           return;
         }
 
@@ -496,7 +517,7 @@ export default function App() {
   };
 
   const backupJSON = () => {
-    const data = { exportedAt: new Date().toISOString(), monthlyIncome, savingsGoal, openingBalance, expenses, sections, bills, closedMonths };
+    const data = { exportedAt: new Date().toISOString(), monthlyIncome, savingsGoal, openingBalance, expenses, sections, bills, closedMonths, currency };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = "money-dashboard-backup.json"; a.click();
@@ -523,6 +544,7 @@ export default function App() {
       if (data.monthlyIncome) setMonthlyIncome(Number(data.monthlyIncome));
       if (data.savingsGoal) setSavingsGoal(Number(data.savingsGoal));
       if (data.openingBalance) setOpeningBalance(Number(data.openingBalance));
+      if (data.currency) setCurrency(data.currency);
       setImportMsg("Backup restored.");
     } catch { setImportMsg("That backup file could not be read."); }
     ev.target.value = "";
@@ -591,6 +613,61 @@ export default function App() {
     syncInsert(newExp);
   };
   const sectionTotals = sections.map((s) => ({ title: s.title, total: sectionTotal(s) }));
+
+  const currencySymbol = CURRENCIES.find(c => c.code === currency)?.symbol || "$";
+
+  // Settings Handlers
+  const handleUpdateEmail = async (e) => {
+    e.preventDefault();
+    setSettingsMsg(""); setSettingsError("");
+    if (!newEmail || newEmail === user.email) { setSettingsError("Enter a new valid email."); return; }
+    const client = await getSupabase();
+    if (!client) return;
+    const { error } = await client.auth.updateUser({ email: newEmail });
+    if (error) { setSettingsError(error.message); return; }
+    setSettingsMsg(`Confirmation link sent to ${newEmail}. Check your inbox to confirm the change.`);
+    setNewEmail("");
+  };
+
+  const handleUpdatePassword = async (e) => {
+    e.preventDefault();
+    setSettingsMsg(""); setSettingsError("");
+    if (!newPassword || newPassword.length < 6) { setSettingsError("Password must be at least 6 characters."); return; }
+    if (newPassword !== confirmPassword) { setSettingsError("Passwords do not match."); return; }
+    const client = await getSupabase();
+    if (!client) return;
+    const { error } = await client.auth.updateUser({ password: newPassword });
+    if (error) { setSettingsError(error.message); return; }
+    setSettingsMsg("Password updated successfully.");
+    setNewPassword(""); setConfirmPassword("");
+  };
+
+  const handleDeleteAccount = async () => {
+    const confirm1 = window.confirm("Are you absolutely sure you want to delete your account? This will permanently delete all your expenses, bills, and settings. This cannot be undone.");
+    if (!confirm1) return;
+    const confirm2 = window.prompt("Type 'DELETE' to confirm:");
+    if (confirm2 !== "DELETE") return;
+
+    const client = await getSupabase();
+    if (!client || !user) return;
+
+    // Delete data first
+    const db = client.schema(SUPABASE_SCHEMA);
+    await db.from("expenses").delete().eq("user_id", user.id);
+    await db.from("bills").delete().eq("user_id", user.id);
+    await db.from("section_items").delete().eq("user_id", user.id);
+    await db.from("sections").delete().eq("user_id", user.id);
+    await db.from("settings").delete().eq("user_id", user.id);
+
+    // Note: Deleting the actual auth user requires a service_role key on the backend,
+    // which we don't have in frontend. So we sign out and wipe local data.
+    // (In a real app, you'd call an RPC function or Edge Function to fully delete).
+    await client.auth.signOut();
+    resetToBlank();
+    setUser(null);
+    setShowSettings(false);
+    alert("Account data deleted. Signed out.");
+  };
 
   if (!user) {
     return (
@@ -679,7 +756,7 @@ export default function App() {
             <span><span className="cat-pill">{e.category}</span>{e.frequency && e.frequency !== "One-time" && <span className="cat-pill" style={{ background: "#ede9fe", color: "#6d28d9" }}>{e.frequency}</span>}{e.date}</span>
           </div>
           <div className="row-right">
-            <strong>${e.amount.toFixed(2)}</strong>
+            <strong>{currencySymbol}{e.amount.toFixed(2)}</strong>
             <button className="edit-btn" onClick={() => startEdit(e)}><Pencil size={15} /></button>
             <button onClick={() => deleteExpense(e.id)}><Trash2 size={16} /></button>
           </div>
@@ -688,6 +765,120 @@ export default function App() {
     </div>
   );
 
+  if (showSettings) {
+    return (
+      <div className={`app ${darkMode ? "dark" : ""}`} style={{ position: "relative", zIndex: 10 }}>
+        <ThreeBackground dark={darkMode} />
+
+        <header>
+          <div className="header-top">
+            <div>
+              <h1>Settings</h1>
+              <p>Manage your account, security, and preferences.</p>
+            </div>
+            <button className="white-btn" onClick={() => setShowSettings(false)}>
+              <X size={15} /> Back to Dashboard
+            </button>
+          </div>
+        </header>
+
+        <div className="settings-page-grid">
+          {/* Account Settings */}
+          <div className="card">
+            <h3><ShieldCheck size={18} /> Account Security</h3>
+
+            {settingsMsg && <div className="alert" style={{ background: "rgba(94, 234, 212, 0.15)", color: "var(--good)", borderColor: "rgba(94, 234, 212, 0.3)" }}>{settingsMsg}</div>}
+            {settingsError && <div className="form-error">{settingsError}</div>}
+
+            <form onSubmit={handleUpdateEmail} className="form" style={{ marginBottom: 24 }}>
+              <div className="field">
+                <label>Change Email</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder={user.email} />
+                  <button type="submit"><Mail size={14} /> Update</button>
+                </div>
+              </div>
+            </form>
+
+            <form onSubmit={handleUpdatePassword} className="form">
+              <div className="field">
+                <label>Change Password</label>
+                <div style={{ display: "flex", gap: 8, flexDirection: "column" }}>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="New password"
+                    />
+                    <button type="button" className="small-ghost-btn" onClick={() => setShowPassword(!showPassword)} style={{ position: "absolute", right: 8, top: 8, padding: 6 }}>
+                      {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm new password"
+                  />
+                  <button type="submit"><Key size={14} /> Update Password</button>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          {/* Preferences */}
+          <div className="card">
+            <h3><Settings size={18} /> Preferences</h3>
+
+            <div className="field" style={{ marginBottom: 16 }}>
+              <label>Appearance</label>
+              <button className="white-btn" onClick={() => setDarkMode(!darkMode)} style={{ width: "100%", justifyContent: "center" }}>
+                {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+                Switch to {darkMode ? "Light" : "Dark"} Mode
+              </button>
+            </div>
+
+            <div className="field">
+              <label>Currency Display</label>
+              <div style={{ position: "relative" }}>
+                <button className="white-btn" onClick={() => setShowCurrencyDropdown(!showCurrencyDropdown)} style={{ width: "100%", justifyContent: "space-between" }}>
+                  <span>{currencySymbol} {currency}</span>
+                  <span>▼</span>
+                </button>
+                {showCurrencyDropdown && (
+                  <div className="currency-dropdown">
+                    {CURRENCIES.map((c) => (
+                      <button
+                        key={c.code}
+                        className="currency-option"
+                        onClick={() => { setCurrency(c.code); setShowCurrencyDropdown(false); }}
+                      >
+                        <span>{c.symbol} {c.code}</span>
+                        <small>{c.label}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Danger Zone */}
+          <div className="card" style={{ borderColor: "rgba(255, 107, 157, 0.3)" }}>
+            <h3 style={{ color: "var(--bad)" }}><AlertTriangle size={18} /> Danger Zone</h3>
+            <p style={{ color: "var(--ink-dim)", fontSize: 14, marginBottom: 16 }}>
+              Once you delete your data, there is no going back. Please be certain.
+            </p>
+            <button onClick={handleDeleteAccount} style={{ background: "var(--bad)", width: "100%" }}>
+              Delete My Account & Data
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`app ${darkMode ? "dark" : ""}`} style={{ position: "relative", zIndex: 10 }}>
       <ThreeBackground dark={darkMode} />
@@ -695,14 +886,19 @@ export default function App() {
         <div className="header-top">
           <div>
             <h1>Money Dashboard</h1>
-            <p>{expenses.length === 0 ? `Welcome, ${user.email}` : `Welcome back, ${user.email} - ${daysLeft} days left - Projected: $${projected}`}</p>
+            <p>{expenses.length === 0 ? `Welcome, ${user.email}` : `Welcome back, ${user.email} - ${daysLeft} days left - Projected: ${currencySymbol}${projected}`}</p>
             <p className="live-date">{liveNow.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} - {liveNow.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</p>
           </div>
-          <div className="badge">Signed in: {user.email} - Supabase: {syncStatus}</div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button className="white-btn" onClick={() => setShowSettings(true)}>
+              <Settings size={15} /> Settings
+            </button>
+            <div className="badge">Signed in: {user.email} - Supabase: {syncStatus}</div>
+          </div>
         </div>
         <div className="settings-row">
-          <label>Income $ <input type="number" value={monthlyIncome} onChange={(e) => setMonthlyIncome(Number(e.target.value) || 0)} /></label>
-          <label>Savings goal $ <input type="number" value={savingsGoal} onChange={(e) => setSavingsGoal(Number(e.target.value) || 0)} /></label>
+          <label>Income {currencySymbol} <input type="number" value={monthlyIncome} onChange={(e) => setMonthlyIncome(Number(e.target.value) || 0)} /></label>
+          <label>Savings goal {currencySymbol} <input type="number" value={savingsGoal} onChange={(e) => setSavingsGoal(Number(e.target.value) || 0)} /></label>
           <button className="white-btn" onClick={exportCSV}><Download size={15} /> Export CSV</button>
           <button className="white-btn" onClick={resetAll}><RotateCcw size={15} /> Start Blank</button>
           <button className="white-btn" onClick={() => setDarkMode(!darkMode)}>{darkMode ? <Sun size={15} /> : <Moon size={15} />} {darkMode ? "Light mode" : "Dark mode"}</button>
@@ -724,8 +920,8 @@ export default function App() {
           <AlertTriangle size={18} />
           <span>
             {overBudget.length > 0 ? `Over budget in: ${overBudget.join(", ")}. ` : ""}
-            {balance < 200 ? `Low balance, only $${balance.toFixed(2)} left. ` : ""}
-            {projected > monthlyIncome && monthlyIncome > 0 ? `At this pace you will spend $${projected} this month.` : ""}
+            {balance < 200 ? `Low balance, only ${currencySymbol}${balance.toFixed(2)} left. ` : ""}
+            {projected > monthlyIncome && monthlyIncome > 0 ? `At this pace you will spend ${currencySymbol}${projected} this month.` : ""}
           </span>
         </div>
       )}
@@ -736,16 +932,16 @@ export default function App() {
       )}
 
       <div className="stats">
-        <div className="card stat"><div className="stat-icon green"><Wallet size={22} /></div><div><span>Monthly Income</span><strong>${monthlyIncome.toFixed(2)}</strong><small>Your real income</small></div></div>
-        <div className="card stat"><div className="stat-icon red"><TrendingDown size={22} /></div><div><span>Total Spent</span><strong>${total.toFixed(2)}</strong><small>{monthExpenses.length} transactions</small></div></div>
-        <div className="card stat"><div className="stat-icon blue"><TrendingUp size={22} /></div><div><span>Balance Left</span><strong className={balance < 0 ? "danger" : "good"}>${balance.toFixed(2)}</strong><small>${dailyAvg.toFixed(2)} / day avg</small></div></div>
-        <div className="card stat"><div className="stat-icon purple"><PiggyBank size={22} /></div><div><span>Savings</span><strong>${savings.toFixed(2)}</strong><small>Goal ${savingsGoal} - {savingsPct}%</small></div></div>
+        <div className="card stat"><div className="stat-icon green"><Wallet size={22} /></div><div><span>Monthly Income</span><strong>{currencySymbol}{monthlyIncome.toFixed(2)}</strong><small>Your real income</small></div></div>
+        <div className="card stat"><div className="stat-icon red"><TrendingDown size={22} /></div><div><span>Total Spent</span><strong>{currencySymbol}{total.toFixed(2)}</strong><small>{monthExpenses.length} transactions</small></div></div>
+        <div className="card stat"><div className="stat-icon blue"><TrendingUp size={22} /></div><div><span>Balance Left</span><strong className={balance < 0 ? "danger" : "good"}>{currencySymbol}{balance.toFixed(2)}</strong><small>{currencySymbol}{dailyAvg.toFixed(2)} / day avg</small></div></div>
+        <div className="card stat"><div className="stat-icon purple"><PiggyBank size={22} /></div><div><span>Savings</span><strong>{currencySymbol}{savings.toFixed(2)}</strong><small>Goal {currencySymbol}{savingsGoal} - {savingsPct}%</small></div></div>
       </div>
 
       <div className="card quick-add">
         <h3><Zap size={18} /> Quick Add - 10 seconds at the store</h3>
         <form onSubmit={quickAdd} className="quick-form">
-          <input type="number" step="0.01" value={quickAmount} onChange={(e) => setQuickAmount(e.target.value)} placeholder="Amount $" required />
+          <input type="number" step="0.01" value={quickAmount} onChange={(e) => setQuickAmount(e.target.value)} placeholder={`Amount ${currencySymbol}`} required />
           <input value={quickTitle} onChange={(e) => setQuickTitle(e.target.value)} placeholder="What was it?" />
           <select value={quickCategory} onChange={(e) => setQuickCategory(e.target.value)}>{categories.map((c) => <option key={c}>{c}</option>)}</select>
           <button type="submit">Add Today</button>
@@ -767,7 +963,7 @@ export default function App() {
             </div>
           )}
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What did you spend on?" />
-          <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount $" />
+          <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={`Amount ${currencySymbol}`} />
           <select value={category} onChange={(e) => setCategory(e.target.value)}>{categories.map((c) => <option key={c}>{c}</option>)}</select>
           <select value={frequency} onChange={(e) => setFrequency(e.target.value)} title="How often does this repeat?">{frequencies.map((f) => <option key={f}>{f}</option>)}</select>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} title="Start date - which month this belongs to" />
@@ -780,23 +976,23 @@ export default function App() {
             <div className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." /></div>
             <select value={filter} onChange={(e) => setFilter(e.target.value)}><option>All</option>{categories.map((c) => <option key={c}>{c}</option>)}</select>
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-              <option value="newest">Newest</option><option value="oldest">Oldest</option><option value="highest">Highest $</option><option value="lowest">Lowest $</option>
+              <option value="newest">Newest</option><option value="oldest">Oldest</option><option value="highest">Highest {currencySymbol}</option><option value="lowest">Lowest {currencySymbol}</option>
             </select>
           </div>
           <p className="box-note">Fixed repeats every month. Flexible is one-off.</p>
-          <div className="box-total">Fixed: ${fixedTotal.toFixed(2)} / month &nbsp;•&nbsp; Flexible total: ${flexTotal.toFixed(2)}</div>
+          <div className="box-total">Fixed: {currencySymbol}{fixedTotal.toFixed(2)} / month &nbsp;•&nbsp; Flexible total: {currencySymbol}{flexTotal.toFixed(2)}</div>
         </div>
       </div>
 
       <div className="two-boxes">
         <div className="card fixed-box">
-          <h3>Fixed - every month <small>{fixedList.length} expenses - ${fixedTotal.toFixed(2)} a month</small></h3>
+          <h3>Fixed - every month <small>{fixedList.length} expenses - {currencySymbol}{fixedTotal.toFixed(2)} a month</small></h3>
           <p className="box-note">Rent, transport, bills.</p>
           {fixedList.length === 0 && <p style={{ color: "#64748b" }}>No fixed expenses yet.</p>}
           {fixedList.map(expenseRow)}
         </div>
         <div className="card flex-box">
-          <h3>Flexible - one-off <small>{flexList.length} expenses - ${flexTotal.toFixed(2)}</small></h3>
+          <h3>Flexible - one-off <small>{flexList.length} expenses - {currencySymbol}{flexTotal.toFixed(2)}</small></h3>
           <p className="box-note">One-off buys.</p>
           {flexList.length === 0 && <p style={{ color: "#64748b" }}>No flexible expenses yet.</p>}
           {flexList.map(expenseRow)}
@@ -829,7 +1025,7 @@ export default function App() {
                         <input className="person-name" value={item.name} onChange={(e) => updateItem(section.id, item.id, "name", e.target.value)} placeholder="Person name" />
                       </div>
                       <div className="field">
-                        <label>Amount $</label>
+                        <label>Amount {currencySymbol}</label>
                         <input type="number" min="0" step="0.01" value={item.amount} onChange={(e) => updateItem(section.id, item.id, "amount", e.target.value)} />
                       </div>
                       <div className="field">
@@ -837,7 +1033,7 @@ export default function App() {
                         <input value={item.note} onChange={(e) => updateItem(section.id, item.id, "note", e.target.value)} placeholder="Bus pass, fuel..." />
                       </div>
                       <div className="person-share">
-                        <span>${(Number(item.amount) || 0).toFixed(2)} - {share}% of total</span>
+                        <span>{currencySymbol}{(Number(item.amount) || 0).toFixed(2)} - {share}% of total</span>
                         <div className="budget-bar"><div className="budget-fill" style={{ width: `${share}%`, background: "#f59e0b" }} /></div>
                       </div>
                       <button className="small-ghost-btn" onClick={() => deleteItemFromSection(section.id, item.id)}>Remove person</button>
@@ -851,12 +1047,12 @@ export default function App() {
               <div className="transport-total">
                 <div className="total-stat">
                   <span>Total - {section.title}</span>
-                  <strong>${stotal.toFixed(2)}</strong>
+                  <strong>{currencySymbol}{stotal.toFixed(2)}</strong>
                   <small>{section.items.length} persons</small>
                 </div>
                 <div className="total-stat">
                   <span>Average per person</span>
-                  <strong>${avg.toFixed(2)}</strong>
+                  <strong>{currencySymbol}{avg.toFixed(2)}</strong>
                   <small>total / {section.items.length}</small>
                 </div>
                 <div className="total-stat">
@@ -865,7 +1061,7 @@ export default function App() {
                   <small>rows in this section</small>
                 </div>
                 <button onClick={() => addSectionTotalToMain(section)} disabled={stotal <= 0}>
-                  Add ${stotal.toFixed(2)} to main
+                  Add {currencySymbol}{stotal.toFixed(2)} to main
                 </button>
               </div>
             </div>
@@ -900,7 +1096,7 @@ export default function App() {
                 </PieChart>
               </ResponsiveContainer>
               <div className="legend">
-                {byCategory.map((c, i) => <span key={c.name}><span className="dot" style={{ background: COLORS[i % COLORS.length] }} />{c.name} ${c.value}</span>)}
+                {byCategory.map((c, i) => <span key={c.name}><span className="dot" style={{ background: COLORS[i % COLORS.length] }} />{c.name} {currencySymbol}{c.value}</span>)}
               </div>
             </>
           )}
@@ -929,14 +1125,14 @@ export default function App() {
             const over = spent > limit;
             return (
               <div key={cat} className="budget-row">
-                <div className="budget-top"><span>{cat}</span><span><strong>${spent}</strong> / ${limit} - {pct}% {over ? "OVER" : ""}</span></div>
+                <div className="budget-top"><span>{cat}</span><span><strong>{currencySymbol}{spent}</strong> / {currencySymbol}{limit} - {pct}% {over ? "OVER" : ""}</span></div>
                 <div className="budget-bar"><div className="budget-fill" style={{ width: `${pct}%`, background: over ? "#ef4444" : COLORS[i % COLORS.length] }} /></div>
               </div>
             );
           })}
           <div className="goal-box">
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}><Target size={20} color="#7c3aed" /><strong>Savings Goal: ${savingsGoal}</strong></div>
-            <p style={{ margin: "8px 0" }}>You have saved ${savings.toFixed(2)} this month - {savingsPct}% of your goal.</p>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}><Target size={20} color="#7c3aed" /><strong>Savings Goal: {currencySymbol}{savingsGoal}</strong></div>
+            <p style={{ margin: "8px 0" }}>You have saved {currencySymbol}{savings.toFixed(2)} this month - {savingsPct}% of your goal.</p>
             <div className="budget-bar"><div className="budget-fill" style={{ width: `${savingsPct}%`, background: "#10b981" }} /></div>
           </div>
         </div>
@@ -952,9 +1148,9 @@ export default function App() {
               const day = i + 1;
               const amt = heatTotals[day] || 0;
               return (
-                <div key={day} className={`heat-day heat-${heatLevel(amt)}`} title={`${heatMonth}-${String(day).padStart(2, "0")}: $${amt.toFixed(2)}`}>
+                <div key={day} className={`heat-day heat-${heatLevel(amt)}`} title={`${heatMonth}-${String(day).padStart(2, "0")}: ${currencySymbol}${amt.toFixed(2)}`}>
                   <span>{day}</span>
-                  {amt > 0 && <small>${Math.round(amt)}</small>}
+                  {amt > 0 && <small>{currencySymbol}{Math.round(amt)}</small>}
                 </div>
               );
             })}
@@ -984,17 +1180,17 @@ export default function App() {
         <div className="card report-card">
           <h3>Monthly Report - {monthFilter === "All" ? "All months" : monthFilter}</h3>
           <div className="report-grid">
-            <div><span>Income</span><strong>${monthlyIncome.toFixed(2)}</strong></div>
-            <div><span>Spent</span><strong>${total.toFixed(2)}</strong></div>
-            <div><span>Balance</span><strong>${balance.toFixed(2)}</strong></div>
-            <div><span>Projected</span><strong>${projected}</strong></div>
+            <div><span>Income</span><strong>{currencySymbol}{monthlyIncome.toFixed(2)}</strong></div>
+            <div><span>Spent</span><strong>{currencySymbol}{total.toFixed(2)}</strong></div>
+            <div><span>Balance</span><strong>{currencySymbol}{balance.toFixed(2)}</strong></div>
+            <div><span>Projected</span><strong>{currencySymbol}{projected}</strong></div>
             <div><span>Transactions</span><strong>{monthExpenses.length}</strong></div>
-            <div><span>Top category</span><strong>{topCategory ? `${topCategory.name} $${topCategory.value}` : "-"}</strong></div>
-            <div><span>Biggest expense</span><strong>{biggest ? `${biggest.title} $${biggest.amount.toFixed(2)}` : "-"}</strong></div>
-            <div><span>Unpaid bills</span><strong>${unpaidTotal.toFixed(2)}</strong></div>
+            <div><span>Top category</span><strong>{topCategory ? `${topCategory.name} ${currencySymbol}${topCategory.value}` : "-"}</strong></div>
+            <div><span>Biggest expense</span><strong>{biggest ? `${biggest.title} ${currencySymbol}${biggest.amount.toFixed(2)}` : "-"}</strong></div>
+            <div><span>Unpaid bills</span><strong>{currencySymbol}{unpaidTotal.toFixed(2)}</strong></div>
           </div>
           <h4>Section totals</h4>
-          {sectionTotals.length === 0 ? <p>No sections.</p> : sectionTotals.map((s) => <div key={s.title} className="split-row"><span>{s.title}</span><strong>${s.total.toFixed(2)}</strong></div>)}
+          {sectionTotals.length === 0 ? <p>No sections.</p> : sectionTotals.map((s) => <div key={s.title} className="split-row"><span>{s.title}</span><strong>{currencySymbol}{s.total.toFixed(2)}</strong></div>)}
           {overBudget.length > 0 && <p style={{ color: "#dc2626" }}>Over budget: {overBudget.join(", ")}</p>}
           <h4>Recent changes</h4>
           {history.length === 0 ? <p>No changes yet.</p> : history.slice(0, 5).map((h, i) => <div key={i} className="split-row"><span>{h.action} - {h.detail}</span><span>{new Date(h.at).toLocaleString()}</span></div>)}
@@ -1004,7 +1200,7 @@ export default function App() {
 
       {lastDeleted && (
         <div className="toast">
-          <span>Deleted {lastDeleted.title} - ${lastDeleted.amount.toFixed(2)}</span>
+          <span>Deleted {lastDeleted.title} - {currencySymbol}{lastDeleted.amount.toFixed(2)}</span>
           <button onClick={undoDelete}><Undo2 size={15} /> Undo</button>
         </div>
       )}
