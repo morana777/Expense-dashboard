@@ -21,7 +21,8 @@ async function getSupabase() {
 const categories = ["Food", "Housing", "Transport", "Entertainment", "Shopping", "Other"];
 const frequencies = ["One-time", "Daily", "Weekly", "Biweekly", "Monthly", "Quarterly", "Yearly"];
 const budgets = { Food: 300, Housing: 1000, Transport: 150, Entertainment: 100, Shopping: 250, Other: 100 };
-const COLORS = ["#9ffcff", "#ff4fd8", "#7c5cff", "#5eead4", "#f59e0b", "#94a3b8"];
+const COLORS_LIGHT = ["#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1"];
+const COLORS_DARK = ["#e2e8f0", "#cbd5e1", "#94a3b8", "#64748b", "#475569", "#334155"];
 const CURRENCIES = [
   { code: "USD", symbol: "$", label: "US Dollar" },
   { code: "EUR", symbol: "€", label: "Euro" },
@@ -769,7 +770,7 @@ export default function App() {
           <button className="small-ghost-btn" onClick={() => setDarkMode(!darkMode)}>{darkMode ? <Sun size={15} /> : <Moon size={15} />} {darkMode ? "Light mode" : "Dark mode"}</button>
         </div>
 
-        <div className="login-wrap" style={{ gridTemplateColumns: "1fr", maxWidth: 500 }}>
+        <div className="login-wrap" style={{ gridTemplateColumns: "1fr", maxWidth: 420 }}>
           <div className="login-card">
 
             {/* 1. FORGOT PASSWORD PAGE */}
@@ -920,8 +921,8 @@ export default function App() {
       ) : (
         <>
           <div>
-            <strong>{e.title} {titleCounts[e.title] > 1 && <span className="cat-pill" style={{ background: "#fef3c7", color: "#92400e" }}>Recurring</span>}</strong>
-            <span><span className="cat-pill">{e.category}</span>{e.frequency && e.frequency !== "One-time" && <span className="cat-pill" style={{ background: "#ede9fe", color: "#6d28d9" }}>{e.frequency}</span>}{e.date}</span>
+            <strong>{e.title} {titleCounts[e.title] > 1 && <span className="cat-pill">Recurring</span>}</strong>
+            <span><span className="cat-pill">{e.category}</span>{e.frequency && e.frequency !== "One-time" && <span className="cat-pill">{e.frequency}</span>}{e.date}</span>
           </div>
           <div className="row-right">
             <strong>{currencySymbol}{e.amount.toFixed(2)}</strong>
@@ -1044,7 +1045,7 @@ export default function App() {
           </div>
 
           {/* Danger Zone */}
-          <div className="card" style={{ borderColor: "rgba(255, 107, 157, 0.3)" }}>
+          <div className="card" style={{ borderColor: "var(--stroke-strong)" }}>
             <h3 style={{ color: "var(--bad)" }}><AlertTriangle size={18} /> Danger Zone</h3>
             <p style={{ color: "var(--ink-dim)", fontSize: 14, marginBottom: 16 }}>
               Once you delete your data, there is no going back. Please be certain.
@@ -1087,7 +1088,7 @@ export default function App() {
       </header>
 
       {syncStatus === "error" && (
-        <div className="alert" style={{ background: "#fef2f2", color: "#991b1b", borderColor: "#fca5a5" }}>
+        <div className="alert" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>
           <AlertTriangle size={18} />
           <span><strong>Supabase error:</strong> {syncError || "Could not load or save your data."} Nothing is being saved to Supabase right now.</span>
           <button className="pill" onClick={() => window.location.reload()}>Try again</button>
@@ -1105,7 +1106,7 @@ export default function App() {
         </div>
       )}
       {currentMonthClosed && (
-        <div className="alert" style={{ background: "#f1f5f9", borderColor: "#cbd5e1", color: "#334155" }}>
+        <div className="alert" style={{ color: "var(--ink-dim)" }}>
           <Lock size={18} /><span>This month ({monthFilter}) is closed and locked.</span>
         </div>
       )}
@@ -1133,7 +1134,7 @@ export default function App() {
           <h3>Add Expense</h3>
           {error && <div className="form-error">{error}</div>}
           {pendingDuplicate && (
-            <div className="form-error" style={{ background: "#fef3c7", color: "#92400e", borderColor: "#fcd34d" }}>
+            <div className="form-error" style={{ color: "var(--warn)", borderColor: "var(--warn)" }}>
               <span>Duplicate? Add it anyway?</span>
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 <button type="button" onClick={(e) => addExpense(e, true)}>Add anyway</button>
@@ -1147,7 +1148,7 @@ export default function App() {
           <select value={frequency} onChange={(e) => setFrequency(e.target.value)} title="How often does this repeat?">{frequencies.map((f) => <option key={f}>{f}</option>)}</select>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} title="Start date - which month this belongs to" />
           <button type="submit">Add Expense</button>
-          <small style={{ color: "#64748b" }}>Pick a repeat - Monthly, Weekly or Biweekly goes in the Fixed box, One-time goes in the Flexible box.</small>
+          <small style={{ color: "var(--ink-dim)" }}>Pick a repeat - Monthly, Weekly or Biweekly goes in the Fixed box, One-time goes in the Flexible box.</small>
         </form>
         <div className="card">
           <h3>Your spending <small>{filtered.length} shown</small></h3>
@@ -1167,13 +1168,13 @@ export default function App() {
         <div className="card fixed-box">
           <h3>Fixed - every month <small>{fixedList.length} expenses - {currencySymbol}{fixedTotal.toFixed(2)} a month</small></h3>
           <p className="box-note">Rent, transport, bills.</p>
-          {fixedList.length === 0 && <p style={{ color: "#64748b" }}>No fixed expenses yet.</p>}
+          {fixedList.length === 0 && <p style={{ color: "var(--ink-dim)" }}>No fixed expenses yet.</p>}
           {fixedList.map(expenseRow)}
         </div>
         <div className="card flex-box">
           <h3>Flexible - one-off <small>{flexList.length} expenses - {currencySymbol}{flexTotal.toFixed(2)}</small></h3>
           <p className="box-note">One-off buys.</p>
-          {flexList.length === 0 && <p style={{ color: "#64748b" }}>No flexible expenses yet.</p>}
+          {flexList.length === 0 && <p style={{ color: "var(--ink-dim)" }}>No flexible expenses yet.</p>}
           {flexList.map(expenseRow)}
         </div>
       </div>
@@ -1184,7 +1185,7 @@ export default function App() {
           <input value={newSectionTitle} onChange={(e) => setNewSectionTitle(e.target.value)} placeholder="New section name" onKeyDown={(e) => { if (e.key === "Enter") addSection(); }} />
           <button onClick={addSection}><Plus size={16} /> Add Section</button>
         </div>
-        {sections.length === 0 && <p style={{ color: "#64748b" }}>No sections yet.</p>}
+        {sections.length === 0 && <p style={{ color: "var(--ink-dim)" }}>No sections yet.</p>}
         {sections.map((section) => {
           const stotal = sectionTotal(section);
           const avg = section.items.length ? stotal / section.items.length : 0;
@@ -1213,7 +1214,7 @@ export default function App() {
                       </div>
                       <div className="person-share">
                         <span>{currencySymbol}{(Number(item.amount) || 0).toFixed(2)} - {share}% of total</span>
-                        <div className="budget-bar"><div className="budget-fill" style={{ width: `${share}%`, background: "#f59e0b" }} /></div>
+                        <div className="budget-bar"><div className="budget-fill" style={{ width: `${share}%`, background: "var(--cyan)" }} /></div>
                       </div>
                       <button className="small-ghost-btn" onClick={() => deleteItemFromSection(section.id, item.id)}>Remove person</button>
                     </div>
@@ -1251,31 +1252,31 @@ export default function App() {
       <div className="charts">
         <div className="card">
           <h3>Spending Trend <small>Income vs spent</small></h3>
-          {expenses.length === 0 ? <p style={{ color: "#64748b" }}>No data yet.</p> : (
+          {expenses.length === 0 ? <p style={{ color: "var(--ink-dim)" }}>No data yet.</p> : (
             <ResponsiveContainer width="100%" height={280}>
               <AreaChart data={monthlyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "rgba(203,213,225,0.12)" : "rgba(30,41,59,0.1)"} />
                 <XAxis dataKey="month" /><YAxis /><Tooltip /><Legend />
-                <Area type="monotone" dataKey="income" stroke="#10b981" fill="#d1fae5" name="Income" />
-                <Area type="monotone" dataKey="spent" stroke="#7c3aed" fill="#ede9fe" name="Spent" />
+                <Area type="monotone" dataKey="income" stroke={darkMode ? "#cbd5e1" : "#334155"} fill={darkMode ? "rgba(203,213,225,0.16)" : "rgba(51,65,85,0.14)"} name="Income" />
+                <Area type="monotone" dataKey="spent" stroke={darkMode ? "#64748b" : "#64748b"} fill={darkMode ? "rgba(100,116,139,0.22)" : "rgba(100,116,139,0.18)"} name="Spent" />
               </AreaChart>
             </ResponsiveContainer>
           )}
         </div>
         <div className="card">
           <h3>Where It Goes <small>Donut by category</small></h3>
-          {byCategory.length === 0 ? <p style={{ color: "#64748b" }}>No data yet.</p> : (
+          {byCategory.length === 0 ? <p style={{ color: "var(--ink-dim)" }}>No data yet.</p> : (
             <>
               <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
                   <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={3}>
-                    {byCategory.map((entry, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    {byCategory.map((entry, i) => <Cell key={i} fill={(darkMode ? COLORS_DARK : COLORS_LIGHT)[i % COLORS_LIGHT.length]} />)}
                   </Pie>
                   <Tooltip />
                 </PieChart>
               </ResponsiveContainer>
               <div className="legend">
-                {byCategory.map((c, i) => <span key={c.name}><span className="dot" style={{ background: COLORS[i % COLORS.length] }} />{c.name} {currencySymbol}{c.value}</span>)}
+                {byCategory.map((c, i) => <span key={c.name}><span className="dot" style={{ background: (darkMode ? COLORS_DARK : COLORS_LIGHT)[i % COLORS_LIGHT.length] }} />{c.name} {currencySymbol}{c.value}</span>)}
               </div>
             </>
           )}
@@ -1285,12 +1286,12 @@ export default function App() {
       <div className="charts-2">
         <div className="card">
           <h3>Spending by Category <small>Bar chart</small></h3>
-          {byCategory.length === 0 ? <p style={{ color: "#64748b" }}>No data yet.</p> : (
+          {byCategory.length === 0 ? <p style={{ color: "var(--ink-dim)" }}>No data yet.</p> : (
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={byCategory}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "rgba(203,213,225,0.12)" : "rgba(30,41,59,0.1)"} />
                 <XAxis dataKey="name" /><YAxis /><Tooltip />
-                <Bar dataKey="value" fill="#7c3aed" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="value" fill={darkMode ? "#94a3b8" : "#334155"} radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -1305,21 +1306,21 @@ export default function App() {
             return (
               <div key={cat} className="budget-row">
                 <div className="budget-top"><span>{cat}</span><span><strong>{currencySymbol}{spent}</strong> / {currencySymbol}{limit} - {pct}% {over ? "OVER" : ""}</span></div>
-                <div className="budget-bar"><div className="budget-fill" style={{ width: `${pct}%`, background: over ? "#ef4444" : COLORS[i % COLORS.length] }} /></div>
+                <div className="budget-bar"><div className="budget-fill" style={{ width: `${pct}%`, background: over ? "var(--bad)" : (darkMode ? COLORS_DARK : COLORS_LIGHT)[i % COLORS_LIGHT.length] }} /></div>
               </div>
             );
           })}
           <div className="goal-box">
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}><Target size={20} color="#7c3aed" /><strong>Savings Goal: {currencySymbol}{savingsGoal}</strong></div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}><Target size={20} color="var(--cyan)" /><strong>Savings Goal: {currencySymbol}{savingsGoal}</strong></div>
             <p style={{ margin: "8px 0" }}>You have saved {currencySymbol}{savings.toFixed(2)} this month - {savingsPct}% of your goal.</p>
-            <div className="budget-bar"><div className="budget-fill" style={{ width: `${savingsPct}%`, background: "#10b981" }} /></div>
+            <div className="budget-bar"><div className="budget-fill" style={{ width: `${savingsPct}%`, background: "var(--good)" }} /></div>
           </div>
         </div>
       </div>
 
       <div className="card">
         <h3>Daily Spending - {heatMonth} <small>Darker = spent more that day</small></h3>
-        {expenses.length === 0 ? <p style={{ color: "#64748b" }}>No data yet.</p> : (
+        {expenses.length === 0 ? <p style={{ color: "var(--ink-dim)" }}>No data yet.</p> : (
           <div className="heatmap">
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="heat-head">{d}</div>)}
             {Array.from({ length: heatFirst }).map((_, i) => <div key={`blank-${i}`} className="heat-day blank" />)}
@@ -1335,7 +1336,7 @@ export default function App() {
             })}
           </div>
         )}
-        <p style={{ color: "#64748b", fontSize: 13 }}>Daily spending for this month.</p>
+        <p style={{ color: "var(--ink-dim)", fontSize: 13 }}>Daily spending for this month.</p>
       </div>
 
       <div className="card data-tools-card">
@@ -1370,7 +1371,7 @@ export default function App() {
           </div>
           <h4>Section totals</h4>
           {sectionTotals.length === 0 ? <p>No sections.</p> : sectionTotals.map((s) => <div key={s.title} className="split-row"><span>{s.title}</span><strong>{currencySymbol}{s.total.toFixed(2)}</strong></div>)}
-          {overBudget.length > 0 && <p style={{ color: "#dc2626" }}>Over budget: {overBudget.join(", ")}</p>}
+          {overBudget.length > 0 && <p style={{ color: "var(--bad)" }}>Over budget: {overBudget.join(", ")}</p>}
           <h4>Recent changes</h4>
           {history.length === 0 ? <p>No changes yet.</p> : history.slice(0, 5).map((h, i) => <div key={i} className="split-row"><span>{h.action} - {h.detail}</span><span>{new Date(h.at).toLocaleString()}</span></div>)}
           <button onClick={() => window.print()}><Printer size={15} /> Print Report</button>
