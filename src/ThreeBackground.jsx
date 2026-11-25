@@ -2,22 +2,27 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
 import lakeUrl from "./assets/images/silver_lake_water_1795473108796.jpg";
-import whiteSwanRightUrl from "./assets/images/white_swan_clean_1795243288021.jpg";
-import whiteSwanLeftUrl from "./assets/images/white_swan_threeq_1795243287453.jpg";
-import blackSwanLeftUrl from "./assets/images/black_swan_profile_1795242894323.jpg";
-import blackSwanRightUrl from "./assets/images/black_swan_angle_1795242894887.jpg";
+import whiteSwanCleanUrl from "./assets/images/white_swan_clean_1795243288021.jpg";
+import blackSwanProfileUrl from "./assets/images/black_swan_profile_1795242894323.jpg";
+import {
+  buildPhoto3DSwanAsset,
+  createContactShadowTexture,
+  SWAN_3D_PHOTO_VERT,
+  SWAN_3D_PHOTO_FRAG,
+  REFL_3D_PHOTO_VERT,
+  REFL_3D_PHOTO_FRAG,
+} from "./swanPhoto3D.js";
 
 const _proj = new THREE.Vector3();
+const _projAhead = new THREE.Vector3();
 const _raycaster = new THREE.Raycaster();
 const _pointerNdc = new THREE.Vector2();
 const _waterPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const _planeHit = new THREE.Vector3();
 
-const SWAN_COUNT = 8;
+const SWAN_COUNT = 10;
 const RIPPLE_COUNT = 8;
-const MAX_PARTICLES = 140;
-const HIT_W = 64;
-const HIT_H = 48;
+const MAX_PARTICLES = 150;
 
 function loadImage(url) {
   return new Promise((resolve, reject) => {
@@ -29,188 +34,10 @@ function loadImage(url) {
   });
 }
 
-/**
- * Extracts a swan photograph via border-connected BFS flood-fill, performs
- * inward RGB matte de-fringing so ZERO white/black halo rims survive, builds
- * a tiny 64x48 alpha hit-mask for accurate silhouette touch raycasting, and
- * anchors the belly cleanly on the waterline.
- */
-function extractSwanSprite(img, isBlackBg, maxAnisotropy = 8, trimBottomFrac = 0.015) {
-  const srcW = img.naturalWidth || img.width;
-  const srcH = img.naturalHeight || img.height;
-  const targetW = Math.min(1536, srcW);
-  const scale = targetW / srcW;
-  const targetH = Math.max(1, Math.round(srcH * scale));
-
-  const work = document.createElement("canvas");
-  work.width = targetW;
-  work.height = targetH;
-  const ctx = work.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(img, 0, 0, targetW, targetH);
-
-  const imgData = ctx.getImageData(0, 0, targetW, targetH);
-  const data = imgData.data;
-  const total = targetW * targetH;
-  const bgMask = new Uint8Array(total);
-  const queue = new Int32Array(total);
-  let head = 0;
-  let tail = 0;
-
-  const isBgPixel = (idx4) => {
-    const r = data[idx4];
-    const g = data[idx4 + 1];
-    const b = data[idx4 + 2];
-    if (isBlackBg) {
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b < 26;
-    }
-    const minC = Math.min(r, g, b);
-    const maxC = Math.max(r, g, b);
-    return minC > 220 && maxC - minC < 26;
-  };
-
-  const enqueue = (p) => {
-    if (bgMask[p]) return;
-    if (isBgPixel(p * 4)) {
-      bgMask[p] = 1;
-      queue[tail++] = p;
-    }
-  };
-
-  for (let x = 0; x < targetW; x++) {
-    enqueue(x);
-    enqueue((targetH - 1) * targetW + x);
-  }
-  for (let y = 0; y < targetH; y++) {
-    enqueue(y * targetW);
-    enqueue(y * targetW + (targetW - 1));
-  }
-
-  while (head < tail) {
-    const p = queue[head++];
-    const x = p % targetW;
-    const y = (p - x) / targetW;
-    if (x > 0) enqueue(p - 1);
-    if (x < targetW - 1) enqueue(p + 1);
-    if (y > 0) enqueue(p - targetW);
-    if (y < targetH - 1) enqueue(p + targetW);
-  }
-
-  const alphaMap = new Float32Array(total);
-  for (let y = 1; y < targetH - 1; y++) {
-    for (let x = 1; x < targetW - 1; x++) {
-      const p = y * targetW + x;
-      if (bgMask[p]) {
-        alphaMap[p] = 0;
-        continue;
-      }
-      let bgCount = 0;
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          if (bgMask[(y + dy) * targetW + (x + dx)]) bgCount++;
-        }
-      }
-      if (bgCount === 0) {
-        alphaMap[p] = 1;
-      } else {
-        const rawA = 1 - bgCount / 9;
-        alphaMap[p] = Math.max(0, Math.min(1, (rawA - 0.14) / 0.86));
-      }
-    }
-  }
-
-  const copyRgb = new Uint8ClampedArray(data);
-  for (let y = 2; y < targetH - 2; y++) {
-    for (let x = 2; x < targetW - 2; x++) {
-      const p = y * targetW + x;
-      const a = alphaMap[p];
-      if (a > 0 && a < 0.98) {
-        let sumR = 0;
-        let sumG = 0;
-        let sumB = 0;
-        let count = 0;
-        for (let dy = -2; dy <= 2; dy++) {
-          for (let dx = -2; dx <= 2; dx++) {
-            const np = (y + dy) * targetW + (x + dx);
-            if (alphaMap[np] >= 0.98) {
-              const n4 = np * 4;
-              sumR += copyRgb[n4];
-              sumG += copyRgb[n4 + 1];
-              sumB += copyRgb[n4 + 2];
-              count++;
-            }
-          }
-        }
-        if (count > 0) {
-          const i4 = p * 4;
-          data[i4] = Math.round(sumR / count);
-          data[i4 + 1] = Math.round(sumG / count);
-          data[i4 + 2] = Math.round(sumB / count);
-        }
-      }
-    }
-  }
-
-  let minX = targetW;
-  let minY = targetH;
-  let maxX = 0;
-  let maxY = 0;
-
-  for (let y = 0; y < targetH; y++) {
-    for (let x = 0; x < targetW; x++) {
-      const p = y * targetW + x;
-      const a = alphaMap[p];
-      data[p * 4 + 3] = Math.round(a * 255);
-      if (a > 0.3) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-
-  const rawH = Math.max(1, maxY - minY + 1);
-  const trimmedMaxY = Math.max(minY + 10, maxY - Math.round(rawH * trimBottomFrac));
-  const sw = Math.max(1, maxX - minX + 1);
-  const sh = Math.max(1, trimmedMaxY - minY + 1);
-
-  const outW = 1536;
-  const outH = 1152;
-  const out = document.createElement("canvas");
-  out.width = outW;
-  out.height = outH;
-  const oCtx = out.getContext("2d");
-
-  const fitScale = Math.min((outW * 0.8) / sw, (outH * 0.88) / sh);
-  const drawW = sw * fitScale;
-  const drawH = sh * fitScale;
-  const dx = (outW - drawW) * 0.5;
-  const dy = outH * 0.99 - drawH;
-
-  oCtx.drawImage(work, minX, minY, sw, sh, dx, dy, drawW, drawH);
-
-  // Build 64x48 silhouette hit-mask so clicks on transparent empty corners fall through to the lake
-  const hitCanvas = document.createElement("canvas");
-  hitCanvas.width = HIT_W;
-  hitCanvas.height = HIT_H;
-  const hCtx = hitCanvas.getContext("2d", { willReadFrequently: true });
-  hCtx.drawImage(out, 0, 0, HIT_W, HIT_H);
-  const hitBytes = hCtx.getImageData(0, 0, HIT_W, HIT_H).data;
-  const hitMask = new Uint8Array(HIT_W * HIT_H);
-  for (let k = 0; k < HIT_W * HIT_H; k++) {
-    hitMask[k] = hitBytes[k * 4 + 3];
-  }
-
-  const tex = new THREE.CanvasTexture(out);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = maxAnisotropy;
-  tex.minFilter = THREE.LinearMipmapLinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.needsUpdate = true;
-
-  return { texture: tex, aspect: outW / outH, hitMask };
+function wrapAngle(a) {
+  let r = (a + Math.PI) % (Math.PI * 2);
+  if (r < 0) r += Math.PI * 2;
+  return r - Math.PI;
 }
 
 const LAKE_VERT = /* glsl */ `
@@ -230,7 +57,7 @@ const LAKE_FRAG = /* glsl */ `
   uniform float uGust;
   uniform vec2 uParallax;
   uniform vec4 uSwanUV[${SWAN_COUNT}];
-  uniform float uSwanDir[${SWAN_COUNT}];
+  uniform vec2 uSwanDir[${SWAN_COUNT}];
   uniform vec4 uRipples[${RIPPLE_COUNT}];
 
   varying vec2 vUv;
@@ -302,24 +129,27 @@ const LAKE_FRAG = /* glsl */ `
     float wakeShadow = 0.0;
     float scrAsp = uResolution.x / max(uResolution.y, 1.0);
 
-    // Swan bow wakes
+    // 360-degree directional 3D swan bow wakes
     for (int i = 0; i < ${SWAN_COUNT}; i++) {
       vec2 sUv = uSwanUV[i].xy;
       float sSize = uSwanUV[i].z;
       float sWake = uSwanUV[i].w;
-      float sDir = uSwanDir[i];
+      vec2 sDir = uSwanDir[i];
       if (sWake > 0.01 && sSize > 0.001) {
         vec2 d = (vUv - sUv) * vec2(scrAsp, 3.6);
         float dist = length(d) / max(sSize, 0.05);
         if (dist < 3.0) {
+          vec2 fwd = normalize(sDir + vec2(0.0001));
+          vec2 side = vec2(-fwd.y, fwd.x);
           float ring = sin(dist * 24.0 - uTime * 3.1 - float(i) * 1.7);
-          float behind = clamp((-d.x * sDir) / max(sSize * 1.65, 0.06), 0.0, 2.2);
-          float vCone = exp(-abs(abs(d.y) - behind * 0.19 * sSize) * 20.0) * smoothstep(0.0, 0.22, behind);
-          float env = exp(-dist * 1.6) * smoothstep(0.03, 0.18, dist) * sWake;
+          float behind = clamp(dot(-d, fwd) / max(sSize * 1.65, 0.06), 0.0, 2.2);
+          float latDist = abs(dot(d, side));
+          float vCone = exp(-abs(latDist - behind * 0.22 * sSize) * 19.0) * smoothstep(0.0, 0.22, behind);
+          float env = exp(-dist * 1.55) * smoothstep(0.03, 0.18, dist) * sWake;
           vec2 dir = dist > 0.001 ? d / dist : vec2(0.0);
           float wakeStrength = env * (0.75 + vCone * 1.65);
           waveOffset += dir * ring * wakeStrength * 0.0032 * sSize;
-          wakeLight += (max(0.0, ring) * env * 0.042 + vCone * env * 0.035);
+          wakeLight += (max(0.0, ring) * env * 0.042 + vCone * env * 0.036);
           wakeShadow += max(0.0, -ring) * env * 0.055;
         }
       }
@@ -394,228 +224,7 @@ const LAKE_FRAG = /* glsl */ `
   }
 `;
 
-const SWAN_VERT = /* glsl */ `
-  uniform float uTime;
-  uniform float uPhase;
-  uniform float uDir;
-  uniform float uNeckAngle;
-  uniform float uWingLift;
-  uniform float uWingRouse;
-  uniform float uTailWag;
-  uniform float uChestLift;
-  uniform float uTurnSquash;
-  uniform vec2 uSize;
-  varying vec2 vUv;
-
-  vec2 rotAround(vec2 p, vec2 pivot, float a) {
-    float c = cos(a);
-    float s = sin(a);
-    vec2 d = p - pivot;
-    return pivot + vec2(d.x * c - d.y * s, d.x * s + d.y * c);
-  }
-
-  void main() {
-    vUv = uv;
-    vec3 pos = position;
-
-    float frontX = uDir > 0.0 ? uv.x : (1.0 - uv.x);
-    float aboveWater = smoothstep(0.04, 0.22, uv.y);
-
-    // Graceful neck & head motion (grazing dip + startled proud S-arch recoil on touch)
-    float neckMask = smoothstep(0.49, 0.72, frontX) * smoothstep(0.16, 0.44, uv.y);
-    float idleScan = sin(uTime * 1.05 + uPhase) * 0.055 + sin(uTime * 0.48 + uPhase * 1.4) * 0.035;
-    float theta = (uNeckAngle + idleScan) * uDir;
-
-    vec2 neckPivot = vec2(uDir * uSize.x * 0.14, uSize.y * 0.22);
-    vec2 rotatedNeck = rotAround(pos.xy, neckPivot, theta * neckMask);
-    pos.xy = mix(pos.xy, rotatedNeck, neckMask);
-
-    // Wing-covert wind lift + dramatic startled feather rouse & flutter wave when touched
-    float wingMask = smoothstep(0.08, 0.26, frontX) * smoothstep(0.66, 0.42, frontX) * smoothstep(0.20, 0.58, uv.y);
-    float breath = sin(uTime * 1.35 + uPhase) * 0.016;
-    float rouseWave = sin(uTime * 26.0 + frontX * 12.0 + uv.y * 8.0) * 0.038 * uWingRouse;
-    float rouseArc = (uWingRouse * 0.14 + rouseWave + uWingLift * 0.065 + breath) * wingMask;
-    pos.y += rouseArc * uSize.y;
-    pos.x -= uDir * (uWingRouse * 0.055) * wingMask * uSize.x;
-
-    // Brisk organic tail feather shake & settle
-    float tailMask = smoothstep(0.28, 0.04, frontX) * smoothstep(0.14, 0.46, uv.y);
-    pos.y += (sin(uTime * 1.45 + uPhase + 1.2) * 0.014 + uTailWag * 0.055) * uSize.y * tailMask;
-
-    // Chest surge lift on touch splash + gentle surface buoyancy
-    pos.y += (frontX * 0.10 * uChestLift + sin(uTime * 1.35 + uPhase + frontX * 2.0) * 0.005) * uSize.y * aboveWater;
-    pos.x *= uTurnSquash;
-
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-  }
-`;
-
-const SWAN_FRAG = /* glsl */ `
-  uniform sampler2D uMap;
-  uniform float uThemeMix;
-  uniform float uIsBlack;
-  uniform float uDepthFade;
-  uniform float uEdgeFade;
-  uniform float uHoverGlow;
-  uniform float uTime;
-  uniform float uPhase;
-  varying vec2 vUv;
-
-  vec4 sampleSharp(sampler2D tex, vec2 uv) {
-    vec2 tx = vec2(1.0 / 1536.0, 1.0 / 1152.0);
-    vec4 c = texture2D(tex, uv);
-    vec3 blur = (
-      texture2D(tex, uv + vec2(tx.x, 0.0)).rgb +
-      texture2D(tex, uv - vec2(tx.x, 0.0)).rgb +
-      texture2D(tex, uv + vec2(0.0, tx.y)).rgb +
-      texture2D(tex, uv - vec2(0.0, tx.y)).rgb
-    ) * 0.25;
-    c.rgb = clamp(c.rgb + (c.rgb - blur) * 0.48, 0.0, 1.0);
-    return c;
-  }
-
-  void main() {
-    vec4 tex = sampleSharp(uMap, vUv);
-    float crispAlpha = smoothstep(0.08, 0.34, tex.a);
-    if (crispAlpha < 0.01) discard;
-
-    float waterWave = 0.028 + 0.007 * sin(vUv.x * 22.0 + uTime * 1.9 + uPhase)
-                            + 0.004 * cos(vUv.x * 38.0 - uTime * 1.4);
-    float waterMask = smoothstep(waterWave - 0.012, waterWave + 0.020, vUv.y);
-    if (waterMask < 0.01) discard;
-
-    vec3 col = tex.rgb;
-    float luma = dot(col, vec3(0.299, 0.587, 0.114));
-    col = mix(col, vec3(luma), mix(0.94, 0.90, uThemeMix));
-
-    vec3 dayWhite = clamp((col - 0.45) * 1.06 + 0.46, 0.0, 1.0) * vec3(0.96, 0.97, 0.99);
-    vec3 dayBlack = pow(clamp(col, 0.0, 1.0), vec3(1.12)) * vec3(0.91, 0.93, 0.97);
-    vec3 daySwan = mix(dayWhite, dayBlack, uIsBlack);
-
-    vec3 nightWhite = col * vec3(0.68, 0.73, 0.82) + vec3(0.04, 0.055, 0.08) * smoothstep(0.25, 0.9, vUv.y);
-    vec3 nightBlack = col * vec3(0.84, 0.87, 0.92) + vec3(0.012, 0.018, 0.028);
-    vec3 nightSwan = mix(nightWhite, nightBlack, uIsBlack);
-
-    vec3 finalCol = mix(nightSwan, daySwan, uThemeMix);
-
-    // Subtle sunlit feather sheen on hover or wing rouse
-    finalCol += vec3(0.85, 0.90, 0.96) * uHoverGlow * 0.08 * smoothstep(0.25, 0.95, vUv.y);
-
-    float wetEdge = smoothstep(waterWave, waterWave + 0.085, vUv.y);
-    finalCol *= mix(0.36, 1.0, wetEdge);
-
-    float meniscus = exp(-pow((vUv.y - (waterWave + 0.016)) / 0.010, 2.0));
-    finalCol += mix(vec3(0.35, 0.42, 0.52), vec3(0.86, 0.89, 0.94), uThemeMix) * meniscus * 0.14;
-
-    vec3 mistColor = mix(vec3(0.09, 0.125, 0.18), vec3(0.76, 0.79, 0.84), uThemeMix);
-    finalCol = mix(finalCol, mistColor, uDepthFade);
-
-    gl_FragColor = vec4(finalCol, crispAlpha * waterMask * uEdgeFade);
-  }
-`;
-
-const REFL_VERT = /* glsl */ `
-  uniform float uTime;
-  uniform float uPhase;
-  uniform float uDir;
-  uniform float uNeckAngle;
-  uniform float uWingLift;
-  uniform float uWingRouse;
-  uniform float uTailWag;
-  uniform float uChestLift;
-  uniform float uTurnSquash;
-  uniform vec2 uSize;
-  varying vec2 vUv;
-
-  vec2 rotAround(vec2 p, vec2 pivot, float a) {
-    float c = cos(a);
-    float s = sin(a);
-    vec2 d = p - pivot;
-    return pivot + vec2(d.x * c - d.y * s, d.x * s + d.y * c);
-  }
-
-  void main() {
-    vUv = uv;
-    vec3 pos = position;
-
-    float frontX = uDir > 0.0 ? uv.x : (1.0 - uv.x);
-    float aboveWater = smoothstep(0.04, 0.22, uv.y);
-
-    float neckMask = smoothstep(0.49, 0.72, frontX) * smoothstep(0.16, 0.44, uv.y);
-    float idleScan = sin(uTime * 1.05 + uPhase) * 0.055 + sin(uTime * 0.48 + uPhase * 1.4) * 0.035;
-    float theta = -(uNeckAngle + idleScan) * uDir;
-
-    vec2 neckPivot = vec2(uDir * uSize.x * 0.14, -uSize.y * 0.22);
-    vec2 rotatedNeck = rotAround(pos.xy, neckPivot, theta * neckMask);
-    pos.xy = mix(pos.xy, rotatedNeck, neckMask);
-
-    float wingMask = smoothstep(0.08, 0.26, frontX) * smoothstep(0.66, 0.42, frontX) * smoothstep(0.20, 0.58, uv.y);
-    float breath = sin(uTime * 1.35 + uPhase) * 0.016;
-    float rouseWave = sin(uTime * 26.0 + frontX * 12.0 + uv.y * 8.0) * 0.038 * uWingRouse;
-    pos.y -= (uWingRouse * 0.14 + rouseWave + uWingLift * 0.065 + breath) * wingMask * uSize.y;
-    pos.x -= uDir * (uWingRouse * 0.055) * wingMask * uSize.x;
-
-    float tailMask = smoothstep(0.28, 0.04, frontX) * smoothstep(0.14, 0.46, uv.y);
-    pos.y -= (sin(uTime * 1.45 + uPhase + 1.2) * 0.014 + uTailWag * 0.055) * uSize.y * tailMask;
-
-    pos.y -= (frontX * 0.10 * uChestLift + sin(uTime * 1.35 + uPhase + frontX * 2.0) * 0.005) * uSize.y * aboveWater;
-    pos.x *= uTurnSquash;
-
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-  }
-`;
-
-const REFL_FRAG = /* glsl */ `
-  uniform sampler2D uMap;
-  uniform float uTime;
-  uniform float uPhase;
-  uniform float uThemeMix;
-  uniform float uIsBlack;
-  uniform float uDepthFade;
-  uniform float uEdgeFade;
-  varying vec2 vUv;
-
-  void main() {
-    float distFromLine = vUv.y;
-
-    float waveX = sin(distFromLine * 46.0 - uTime * 2.1 + uPhase) * 0.028 * (0.12 + distFromLine);
-    float waveX2 = cos(distFromLine * 96.0 + uTime * 1.8 - uPhase * 0.7) * 0.012 * distFromLine;
-    float sx = clamp(vUv.x + waveX + waveX2, 0.0, 1.0);
-
-    float blurOff = 0.004 * distFromLine;
-    vec4 tex = (
-      texture2D(uMap, vec2(sx, distFromLine)) * 0.5 +
-      texture2D(uMap, vec2(clamp(sx + blurOff, 0.0, 1.0), distFromLine)) * 0.25 +
-      texture2D(uMap, vec2(clamp(sx - blurOff, 0.0, 1.0), distFromLine)) * 0.25
-    );
-
-    if (tex.a < 0.06) discard;
-
-    float waterWave = 0.028 + 0.007 * sin(vUv.x * 22.0 + uTime * 1.9 + uPhase)
-                            + 0.004 * cos(vUv.x * 38.0 - uTime * 1.4);
-    if (vUv.y < waterWave * 0.65) discard;
-
-    float ribbon = smoothstep(-0.35, 0.45, sin(distFromLine * 54.0 - uTime * 2.0 + uPhase + sin(vUv.x * 14.0) * 1.2));
-    float luma = dot(tex.rgb, vec3(0.299, 0.587, 0.114));
-
-    float hullShadow = exp(-distFromLine * 6.2);
-    vec3 shadowCol = mix(vec3(0.014, 0.020, 0.034), vec3(0.06, 0.075, 0.10), uThemeMix);
-
-    vec3 whiteRefl = mix(vec3(0.045, 0.062, 0.092), vec3(0.54, 0.57, 0.62), luma * mix(0.62, 0.96, uThemeMix));
-    vec3 blackRefl = mix(vec3(0.015, 0.022, 0.036), vec3(0.08, 0.10, 0.13), luma * 0.55);
-    vec3 bodyRefl = mix(whiteRefl, blackRefl, uIsBlack);
-
-    vec3 reflCol = mix(bodyRefl, shadowCol, hullShadow * 0.85);
-    vec3 lakeTint = mix(vec3(0.045, 0.062, 0.095), vec3(0.46, 0.50, 0.56), uThemeMix);
-    reflCol = mix(reflCol, lakeTint, distFromLine * 0.42);
-
-    float baseFade = pow(1.0 - distFromLine, 1.38) * mix(0.66, 0.72, uThemeMix) * (1.0 - uDepthFade * 0.72);
-    float finalAlpha = smoothstep(0.08, 0.48, tex.a) * baseFade * mix(0.32, 1.0, ribbon) * uEdgeFade;
-    gl_FragColor = vec4(reflCol, finalAlpha);
-  }
-`;
-
-// Soft 3D splash droplets & floating downy swan feathers spawned on touch
+// Soft 3D splash droplets, floating downy swan feathers & feeding crumbs
 const PARTICLE_VERT = /* glsl */ `
   attribute float aSize;
   attribute float aAlpha;
@@ -651,7 +260,6 @@ const PARTICLE_FRAG = /* glsl */ `
     vec2 p = gl_PointCoord - 0.5;
 
     if (vType < 0.5) {
-      // Water splash droplet glint
       float r = length(p);
       float drop = smoothstep(0.5, 0.12, r);
       float spec = exp(-r * 8.0);
@@ -660,7 +268,6 @@ const PARTICLE_FRAG = /* glsl */ `
       col += vec3(0.25) * spec;
       gl_FragColor = vec4(col, drop * vAlpha);
     } else if (vType < 1.5) {
-      // Delicate floating downy feather silhouette
       float c = cos(vAngle);
       float s = sin(vAngle);
       vec2 rp = vec2(p.x * c - p.y * s, p.x * s + p.y * c);
@@ -673,11 +280,9 @@ const PARTICLE_FRAG = /* glsl */ `
       vec3 whiteFeather = mix(vec3(0.72, 0.77, 0.85), vec3(0.97, 0.98, 1.0), uThemeMix);
       vec3 blackFeather = mix(vec3(0.12, 0.15, 0.21), vec3(0.18, 0.21, 0.27), uThemeMix);
       vec3 col = mix(blackFeather, whiteFeather, vShade);
-      // Soft quill highlight down the spine
       col += mix(vec3(0.12), vec3(0.08), vShade) * exp(-abs(curve) * 28.0);
       gl_FragColor = vec4(col, alpha);
     } else {
-      // Floating bread / grain feeding morsel resting on the water surface
       float ang = atan(p.y, p.x);
       float r = length(p) * (1.0 + 0.20 * sin(ang * 3.0 + vAngle));
       float crumb = smoothstep(0.42, 0.18, r);
@@ -752,12 +357,13 @@ export default function ThreeBackground({ dark = true }) {
       return undefined;
     }
 
-    const getDpr = () => (isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2.5));
+    const getDpr = () => (isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2.0));
     const w0 = mount.clientWidth || window.innerWidth;
     const h0 = mount.clientHeight || window.innerHeight;
     renderer.setPixelRatio(getDpr());
     renderer.setSize(w0, h0);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.NoToneMapping;
     renderer.autoClear = false;
     mount.appendChild(renderer.domElement);
 
@@ -785,7 +391,7 @@ export default function ThreeBackground({ dark = true }) {
       uGust: { value: 0 },
       uParallax: { value: new THREE.Vector2(0, 0) },
       uSwanUV: { value: Array.from({ length: SWAN_COUNT }, () => new THREE.Vector4()) },
-      uSwanDir: { value: Array.from({ length: SWAN_COUNT }, () => 1) },
+      uSwanDir: { value: Array.from({ length: SWAN_COUNT }, () => new THREE.Vector2(1, 0)) },
       uRipples: { value: Array.from({ length: RIPPLE_COUNT }, () => new THREE.Vector4()) },
     };
     const lakeMat = track(
@@ -799,7 +405,9 @@ export default function ThreeBackground({ dark = true }) {
     );
     bgScene.add(new THREE.Mesh(track(new THREE.PlaneGeometry(2, 2)), lakeMat));
 
+    // Main 3D Scene for photo-inflated multi-angle 3D swans, reflections & particles
     const scene = new THREE.Scene();
+
     const aspect0 = w0 / h0;
     const fov0 = aspect0 < 0.75 ? 50 : aspect0 < 1.1 ? 45 : 42;
     const camera = new THREE.PerspectiveCamera(fov0, aspect0, 0.2, 120);
@@ -808,7 +416,7 @@ export default function ThreeBackground({ dark = true }) {
     camera.position.set(0, camY, 0);
     camera.lookAt(0, camY + getLookDy(fov0), -10);
 
-    // Pre-allocated particle system (zero runtime GC) for floating swan feathers & water droplets
+    // Pre-allocated particle system (zero runtime GC) for splash droplets, feathers & crumbs
     const pPos = new Float32Array(MAX_PARTICLES * 3);
     const pVel = new Float32Array(MAX_PARTICLES * 3);
     const pSize = new Float32Array(MAX_PARTICLES);
@@ -912,7 +520,6 @@ export default function ThreeBackground({ dark = true }) {
 
     const spawnFeatherBurst = (swan) => {
       const shade = swan.isBlack ? 0.0 : 1.0;
-      // Floating downy feathers drifting off wings
       for (let k = 0; k < 10; k++) {
         const spreadAng = Math.random() * Math.PI * 2;
         const lat = 0.25 + Math.random() * 0.55;
@@ -921,20 +528,18 @@ export default function ThreeBackground({ dark = true }) {
           swan.x + (Math.random() - 0.5) * 0.55,
           0.42 + Math.random() * 0.45,
           swan.z + (Math.random() - 0.5) * 0.25,
-          Math.cos(spreadAng) * lat - swan.dir * 0.25,
+          Math.cos(spreadAng) * lat - Math.sin(swan.heading) * 0.25,
           0.48 + Math.random() * 0.65,
-          Math.sin(spreadAng) * lat * 0.45,
+          Math.sin(spreadAng) * lat * 0.45 - Math.cos(swan.heading) * 0.25,
           14.0 + Math.random() * 9.0,
           2.6 + Math.random() * 1.5,
           shade
         );
       }
-      // Sparkling splash droplets around chest & wingtip
       spawnSplashParticles(swan.x, swan.z, 18, 1.15);
     };
 
     const spawnFeedCrumbs = (wx, wz, swanIdx) => {
-      // Clear any previous crumbs from this swan before scattering fresh morsels
       for (let k = 0; k < MAX_PARTICLES; k++) {
         if (pOwner[k] === swanIdx && pType[k] > 1.5) {
           pLife[k] = pMaxLife[k];
@@ -952,52 +557,49 @@ export default function ThreeBackground({ dark = true }) {
           0.65 + Math.random() * 0.45,
           Math.sin(ang) * 0.1,
           7.0 + Math.random() * 3.5,
-          9.5,
+          10.0,
           1.0,
           swanIdx
         );
       }
     };
 
+    const contactShadowGeo = track(new THREE.PlaneGeometry(1, 1));
+    contactShadowGeo.rotateX(-Math.PI / 2);
+    const contactShadowTex = track(createContactShadowTexture());
+
+    // 10 Multi-Angle 3D Photo-Inflated Swans gliding serenely across foreground, midground & horizon
     const swanSpecs = [
-      { isBlack: false, height: 1.55, x: -3.2, z: -6.2, halfSpan: 5.8, dir: 1, speed: 0.34 },
-      { isBlack: true, height: 1.48, x: 3.1, z: -6.9, halfSpan: 6.2, dir: -1, speed: 0.31 },
-      { isBlack: false, height: 1.42, x: -5.4, z: -9.8, halfSpan: 8.5, dir: -1, speed: 0.28 },
-      { isBlack: true, height: 1.40, x: 5.1, z: -10.4, halfSpan: 8.8, dir: 1, speed: 0.27 },
-      { isBlack: false, height: 1.38, x: 1.8, z: -14.0, halfSpan: 11.2, dir: 1, speed: 0.25 },
-      { isBlack: true, height: 1.36, x: -3.8, z: -15.4, halfSpan: 11.8, dir: -1, speed: 0.24 },
-      { isBlack: false, height: 1.35, x: -6.8, z: -22.5, halfSpan: 16.0, dir: 1, speed: 0.20 },
-      { isBlack: true, height: 1.32, x: 6.2, z: -24.5, halfSpan: 17.0, dir: -1, speed: 0.19 },
+      { isBlack: false, height: 1.62, homeX: -1.2, homeZ: -6.2, rx: 5.2, rz: 0.78, orbitFreq: 0.058, phase: 0.75, speed: 0.40 },
+      { isBlack: true, height: 1.56, homeX: 1.4, homeZ: -7.0, rx: 5.5, rz: 0.84, orbitFreq: -0.054, phase: 2.35, speed: 0.38 },
+      { isBlack: false, height: 1.50, homeX: -2.2, homeZ: -8.7, rx: 6.2, rz: 0.90, orbitFreq: 0.050, phase: 1.85, speed: 0.36 },
+      { isBlack: true, height: 1.48, homeX: 2.2, homeZ: -9.7, rx: 6.4, rz: 0.94, orbitFreq: -0.048, phase: 1.20, speed: 0.35 },
+      { isBlack: false, height: 1.45, homeX: -1.5, homeZ: -11.5, rx: 7.0, rz: 1.00, orbitFreq: 0.046, phase: 4.95, speed: 0.34 },
+      { isBlack: true, height: 1.44, homeX: 2.8, homeZ: -12.8, rx: 7.2, rz: 1.04, orbitFreq: -0.045, phase: 2.75, speed: 0.33 },
+      { isBlack: false, height: 1.42, homeX: 0.4, homeZ: -14.6, rx: 7.8, rz: 1.10, orbitFreq: 0.042, phase: 5.55, speed: 0.32 },
+      { isBlack: true, height: 1.40, homeX: -3.0, homeZ: -16.4, rx: 8.4, rz: 1.15, orbitFreq: -0.040, phase: 2.20, speed: 0.31 },
+      { isBlack: false, height: 1.38, homeX: -3.8, homeZ: -19.6, rx: 9.2, rz: 1.22, orbitFreq: 0.038, phase: 0.85, speed: 0.28 },
+      { isBlack: true, height: 1.36, homeX: 4.0, homeZ: -21.6, rx: 9.8, rz: 1.28, orbitFreq: -0.036, phase: 3.90, speed: 0.27 },
     ];
 
     const swans = [];
     const hitMeshes = [];
-    let spriteBank = null;
-    let disposed = false;
-
-    const getSpriteForSwan = (isBlack, dir) => {
-      if (!spriteBank) return null;
-      if (!isBlack) return dir > 0 ? spriteBank.whiteRight : spriteBank.whiteLeft;
-      return dir < 0 ? spriteBank.blackLeft : spriteBank.blackRight;
-    };
 
     const triggerSwanTouch = (s) => {
       s.reactTimer = 2.6;
-      s.speedBoost = 0.85;
+      s.speedBoost = 0.72;
       s.feedState = "none";
       s.isGrazing = false;
 
-      // Spawn multi-ring water ripple right at the swan's chest waterline
       _proj.set(s.x, 0, s.z).project(camera);
       spawnRippleAtUv(_proj.x * 0.5 + 0.5, _proj.y * 0.5 + 0.5, 1.05, 2.3);
       spawnFeatherBurst(s);
 
-      // Nearby swans respond with a gentle alert head lift
       for (let j = 0; j < swans.length; j++) {
         if (j === s.idx) continue;
         const other = swans[j];
         const dist = Math.hypot(other.x - s.x, other.z - s.z);
-        if (dist < 5.0 && other.reactTimer <= 0 && other.feedState === "none") {
+        if (dist < 5.5 && other.reactTimer <= 0 && other.feedState === "none") {
           other.alertTimer = 1.6;
           other.isGrazing = false;
         }
@@ -1008,155 +610,161 @@ export default function ThreeBackground({ dark = true }) {
       s.feedState = "approach";
       s.feedTargetX = wx;
       s.feedTargetZ = wz;
-      s.feedTimer = 8.0;
+      s.feedTimer = 9.0;
       s.dabbleTimer = 0;
       s.peckPulseLock = false;
       s.reactTimer = 0;
       s.alertTimer = 0.8;
       s.isGrazing = false;
 
-      // Smooth foreshortened pivot turn if clicked coordinate is behind the swan
-      const desiredDir = wx - s.x >= 0 ? 1 : -1;
-      const activeDir = s.turningTo !== 0 ? s.turningTo : s.dir;
-      if (desiredDir !== activeDir && Math.abs(wx - s.x) > 0.18) {
-        s.turningTo = desiredDir;
-        s.turnPhase = 0;
-      }
-
       spawnFeedCrumbs(wx, wz, s.idx);
     };
 
-    Promise.all([
-      loadImage(lakeUrl),
-      loadImage(whiteSwanRightUrl),
-      loadImage(whiteSwanLeftUrl),
-      loadImage(blackSwanLeftUrl),
-      loadImage(blackSwanRightUrl),
-    ])
-      .then(([lakeImg, wrImg, wlImg, blImg, brImg]) => {
+    let disposed = false;
+
+    Promise.all([loadImage(lakeUrl), loadImage(whiteSwanCleanUrl), loadImage(blackSwanProfileUrl)])
+      .then(([lakeImg, whiteSwanImg, blackSwanImg]) => {
         if (disposed) return;
 
         const lakeTex = track(new THREE.Texture(lakeImg));
         lakeTex.colorSpace = THREE.SRGBColorSpace;
         lakeTex.anisotropy = maxAniso;
         lakeTex.needsUpdate = true;
-
         lakeUniforms.uLakeTex.value = lakeTex;
         lakeUniforms.uTexSize.value.set(lakeImg.naturalWidth || 1920, lakeImg.naturalHeight || 1080);
 
-        spriteBank = {
-          whiteRight: extractSwanSprite(wrImg, true, maxAniso, 0.012),
-          whiteLeft: extractSwanSprite(wlImg, true, maxAniso, 0.012),
-          blackLeft: extractSwanSprite(blImg, false, maxAniso, 0.015),
-          blackRight: extractSwanSprite(brImg, false, maxAniso, 0.015),
-        };
-        Object.values(spriteBank).forEach((s) => track(s.texture));
+        const whiteAsset = buildPhoto3DSwanAsset(whiteSwanImg, {
+          isBlackBg: true,
+          flipX: false,
+          trimBottomFrac: 0.024,
+          maxAnisotropy: maxAniso,
+        });
+        const blackAsset = buildPhoto3DSwanAsset(blackSwanImg, {
+          isBlackBg: false,
+          flipX: true,
+          trimBottomFrac: 0.020,
+          maxAnisotropy: maxAniso,
+        });
+        track(whiteAsset.texture);
+        track(whiteAsset.geometry);
+        track(blackAsset.texture);
+        track(blackAsset.geometry);
 
         swanSpecs.forEach((spec, idx) => {
-          const w = spec.height * (1536 / 1152);
-          const h = spec.height;
-          const sprite = getSpriteForSwan(spec.isBlack, spec.dir);
-
-          const bodyGeo = track(new THREE.PlaneGeometry(w, h, 36, 28));
-          bodyGeo.translate(0, h * 0.5, 0);
-
-          const bodyUniforms = {
-            uMap: { value: sprite.texture },
+          const asset = spec.isBlack ? blackAsset : whiteAsset;
+          const phase = idx * 1.75;
+          const baseUniforms = {
+            uMap: { value: asset.texture },
+            uTime: { value: 0 },
+            uPhase: { value: phase },
             uThemeMix: { value: state.themeMix },
             uIsBlack: { value: spec.isBlack ? 1 : 0 },
             uDepthFade: { value: 0 },
-            uEdgeFade: { value: 1 },
             uHoverGlow: { value: 0 },
-            uTime: { value: 0 },
-            uPhase: { value: idx * 1.75 },
-            uDir: { value: spec.dir },
             uNeckAngle: { value: 0 },
+            uNeckTurn: { value: 0 },
             uWingLift: { value: 0 },
             uWingRouse: { value: 0 },
             uTailWag: { value: 0 },
             uChestLift: { value: 0 },
-            uTurnSquash: { value: 1 },
-            uSize: { value: new THREE.Vector2(w, h) },
           };
+
           const bodyMat = track(
             new THREE.ShaderMaterial({
-              uniforms: bodyUniforms,
-              vertexShader: SWAN_VERT,
-              fragmentShader: SWAN_FRAG,
-              transparent: true,
-              depthWrite: false,
-              side: THREE.DoubleSide,
+              uniforms: baseUniforms,
+              vertexShader: SWAN_3D_PHOTO_VERT,
+              fragmentShader: SWAN_3D_PHOTO_FRAG,
+              transparent: false,
+              depthWrite: true,
+              depthTest: true,
+              side: THREE.FrontSide,
             })
           );
-          const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
-          bodyMesh.userData.swanIdx = idx;
-          hitMeshes.push(bodyMesh);
 
-          const reflH = h * 0.88;
-          const reflGeo = track(new THREE.PlaneGeometry(w, reflH, 28, 20));
-          const uvAttr = reflGeo.attributes.uv;
-          for (let k = 0; k < uvAttr.count; k++) {
-            uvAttr.setY(k, 1.0 - uvAttr.getY(k));
-          }
-          reflGeo.translate(0, -reflH * 0.5, 0);
-
-          const reflUniforms = {
-            uMap: { value: sprite.texture },
-            uTime: { value: 0 },
-            uPhase: { value: idx * 1.75 },
-            uDir: { value: spec.dir },
-            uNeckAngle: { value: 0 },
-            uWingLift: { value: 0 },
-            uWingRouse: { value: 0 },
-            uTailWag: { value: 0 },
-            uChestLift: { value: 0 },
-            uTurnSquash: { value: 1 },
-            uSize: { value: new THREE.Vector2(w, reflH) },
-            uThemeMix: { value: state.themeMix },
-            uIsBlack: { value: spec.isBlack ? 1 : 0 },
-            uDepthFade: { value: 0 },
-            uEdgeFade: { value: 1 },
-          };
           const reflMat = track(
             new THREE.ShaderMaterial({
-              uniforms: reflUniforms,
-              vertexShader: REFL_VERT,
-              fragmentShader: REFL_FRAG,
+              uniforms: baseUniforms,
+              vertexShader: REFL_3D_PHOTO_VERT,
+              fragmentShader: REFL_3D_PHOTO_FRAG,
               transparent: true,
               depthWrite: false,
-              side: THREE.DoubleSide,
+              depthTest: true,
+              side: THREE.BackSide,
             })
           );
-          const reflMesh = new THREE.Mesh(reflGeo, reflMat);
 
-          const group = new THREE.Group();
-          group.add(reflMesh);
-          group.add(bodyMesh);
-          group.position.set(spec.x, 0, spec.z);
-          scene.add(group);
+          const contactMat = track(
+            new THREE.MeshBasicMaterial({
+              map: contactShadowTex,
+              transparent: true,
+              opacity: 0.44,
+              depthWrite: false,
+              depthTest: true,
+            })
+          );
+
+          const root = new THREE.Group();
+
+          const contactMesh = new THREE.Mesh(contactShadowGeo, contactMat);
+          contactMesh.position.set(0, 0.006, 0.02);
+          contactMesh.scale.set(spec.height * 0.72, 1, spec.height * 1.18);
+          contactMesh.renderOrder = 10;
+          root.add(contactMesh);
+
+          const reflMesh = new THREE.Mesh(asset.geometry, reflMat);
+          reflMesh.scale.set(spec.height, -spec.height * 0.84, spec.height);
+          reflMesh.position.set(0, -0.01, 0);
+          reflMesh.rotation.order = "YXZ";
+          reflMesh.renderOrder = 8;
+          root.add(reflMesh);
+
+          const bodyMesh = new THREE.Mesh(asset.geometry, bodyMat);
+          bodyMesh.scale.set(spec.height, spec.height, spec.height);
+          bodyMesh.rotation.order = "YXZ";
+          bodyMesh.renderOrder = 20;
+          bodyMesh.userData.swanIdx = idx;
+          root.add(bodyMesh);
+
+          const curAsp = camera.aspect || aspect0;
+          const aspectFactor = Math.max(0.75, curAsp / 1.77);
+          const x0 = spec.homeX * aspectFactor + Math.cos(spec.phase) * spec.rx * aspectFactor;
+          const z0 = spec.homeZ + Math.sin(spec.phase) * spec.rz;
+          const vx0 = -Math.sin(spec.phase) * spec.rx * aspectFactor * spec.orbitFreq;
+          const vz0 = Math.cos(spec.phase) * spec.rz * spec.orbitFreq;
+          const initHeading = Math.atan2(vx0, vz0);
+
+          root.position.set(x0, 0, z0);
+          root.rotation.y = initHeading;
+          scene.add(root);
+
+          hitMeshes.push(bodyMesh);
 
           swans.push({
             idx,
             isBlack: spec.isBlack,
-            hitMask: sprite.hitMask,
-            group,
+            height: spec.height,
+            root,
             bodyMesh,
             reflMesh,
-            bodyUniforms,
-            reflUniforms,
-            x: spec.x,
-            z: spec.z,
-            baseZ: spec.z,
-            halfSpan: spec.halfSpan,
-            dir: spec.dir,
-            turningTo: 0,
-            turnPhase: 0,
-            turnSquash: 1,
+            contactMat,
+            uniforms: baseUniforms,
+            x: x0,
+            z: z0,
+            homeX: spec.homeX,
+            homeZ: spec.homeZ,
+            rx: spec.rx,
+            rz: spec.rz,
+            orbitFreq: spec.orbitFreq,
+            orbitPhase: spec.phase,
+            heading: initHeading,
+            targetHeading: initHeading,
+            yawRate: 0,
             speed: spec.speed,
             speedBoost: 0,
-            phase: idx * 1.75,
-            neckAngle: 0,
-            wingLift: 0,
+            phase,
+            neckDip: 0,
+            neckTurn: 0,
+            wingSpread: 0,
             wingRouse: 0,
             tailWag: 0,
             chestLift: 0,
@@ -1165,17 +773,26 @@ export default function ThreeBackground({ dark = true }) {
             alertTimer: 0,
             feedState: "none",
             feedTargetX: 0,
-            feedTargetZ: spec.z,
+            feedTargetZ: z0,
             feedTimer: 0,
             dabbleTimer: 0,
             peckPulseLock: false,
             grazingTimer: 2.5 + idx * 1.3,
             isGrazing: false,
+            swimMood: idx % 3 === 1 ? "preen" : "cruise",
+            moodTimer: 3.2 + idx * 1.4,
+            moodDuration: 4.5,
+            preenSide: idx % 2 === 0 ? 1 : -1,
+            swimRippleLock: false,
           });
         });
+
+        if (!isSoftwareGl) {
+          renderer.compile(scene, camera);
+        }
       })
       .catch((err) => {
-        console.error("Failed to load swan lake assets:", err);
+        console.error("Failed to load swan lake photo textures:", err);
       });
 
     const isUiControl = (target) =>
@@ -1193,16 +810,10 @@ export default function ThreeBackground({ dark = true }) {
 
       _raycaster.setFromCamera(_pointerNdc, camera);
       const intersects = _raycaster.intersectObjects(hitMeshes, false);
-
-      // Check intersections front-to-back against actual non-transparent feather pixels
-      for (let i = 0; i < intersects.length; i++) {
-        const hit = intersects[i];
-        const s = swans[hit.object.userData.swanIdx];
-        if (!s || !hit.uv) continue;
-        const hx = Math.min(HIT_W - 1, Math.max(0, Math.floor(hit.uv.x * HIT_W)));
-        const hy = Math.min(HIT_H - 1, Math.max(0, Math.floor((1 - hit.uv.y) * HIT_H)));
-        if (s.hitMask[hy * HIT_W + hx] > 42) {
-          return s;
+      if (intersects.length > 0) {
+        const sIdx = intersects[0].object.userData.swanIdx;
+        if (typeof sIdx === "number" && swans[sIdx]) {
+          return swans[sIdx];
         }
       }
       return null;
@@ -1221,23 +832,21 @@ export default function ThreeBackground({ dark = true }) {
         return;
       }
 
-      // Clicked/touched open lake water -> spawn splash ripple + check proximity to trigger feeding
       if (uvY < 0.815) {
         state.isDraggingWater = true;
         spawnRippleAtUv(uvX, uvY, 1.0, 2.2);
 
         _pointerNdc.set(uvX * 2 - 1, uvY * 2 - 1);
         _raycaster.setFromCamera(_pointerNdc, camera);
-        if (_raycaster.ray.intersectPlane(_waterPlane, _planeHit) && _planeHit.z < -2.2 && _planeHit.z > -32) {
+        if (_raycaster.ray.intersectPlane(_waterPlane, _planeHit) && _planeHit.z < -2.2 && _planeHit.z > -30) {
           spawnSplashParticles(_planeHit.x, _planeHit.z, 10, 0.75);
 
-          // Find nearest visible swan within feeding proximity radius on the water plane
           let nearestSwan = null;
           let nearestDist = Infinity;
           for (let i = 0; i < swans.length; i++) {
             const s = swans[i];
             const dist = Math.hypot(s.x - _planeHit.x, s.z - _planeHit.z);
-            const feedRadius = 4.6 + Math.abs(s.z) * 0.11;
+            const feedRadius = 5.4 + Math.abs(s.z) * 0.12;
             if (dist < feedRadius && dist < nearestDist) {
               nearestDist = dist;
               nearestSwan = s;
@@ -1270,7 +879,6 @@ export default function ThreeBackground({ dark = true }) {
         }
       }
 
-      // Throttled swan hover glow & pointer cursor feedback on open water
       const now = performance.now();
       if (finePointer && now - state.lastHoverCheck > 55) {
         state.lastHoverCheck = now;
@@ -1360,8 +968,8 @@ export default function ThreeBackground({ dark = true }) {
 
       const mixVal = state.themeMix;
 
-      const swayX = Math.sin(t * 0.13) * 0.22 + state.px * 0.35;
-      const swayY = Math.sin(t * 0.18 + 0.7) * 0.035 - state.py * 0.06;
+      const swayX = Math.sin(t * 0.13) * 0.24 + state.px * 0.42;
+      const swayY = Math.sin(t * 0.18 + 0.7) * 0.04 - state.py * 0.07;
       const curCamY = camY + swayY - state.scrollP * 0.16;
 
       lakeUniforms.uTime.value = t;
@@ -1370,7 +978,6 @@ export default function ThreeBackground({ dark = true }) {
       lakeUniforms.uParallax.value.set(swayX, swayY);
       pUniforms.uThemeMix.value = mixVal;
 
-      // Update concentric water ripple slots
       for (let k = 0; k < RIPPLE_COUNT; k++) {
         const r = ripples[k];
         if (r.active) {
@@ -1388,7 +995,7 @@ export default function ThreeBackground({ dark = true }) {
       camera.lookAt(swayX * 0.72, curCamY + getLookDy(camera.fov), -10);
       camera.updateMatrixWorld();
 
-      // Update 3D water splash droplets, floating downy feathers & feeding crumbs
+      // Update particles (droplets, floating feathers, feeding crumbs)
       for (let k = 0; k < MAX_PARTICLES; k++) {
         if (pLife[k] >= pMaxLife[k] || pMaxLife[k] <= 0) {
           pAlpha[k] = 0;
@@ -1426,7 +1033,6 @@ export default function ThreeBackground({ dark = true }) {
             pAlpha[k] = Math.sin(Math.min(1, progress) * Math.PI) * 0.92;
           }
         } else {
-          // Feeding crumbs drop onto water surface and gently bob with wavelets
           if (pPos[i3 + 1] > 0.015 || pVel[i3 + 1] > 0) {
             pVel[i3 + 1] -= 4.2 * rawDt;
             pPos[i3] += pVel[i3] * rawDt;
@@ -1443,12 +1049,14 @@ export default function ThreeBackground({ dark = true }) {
             pPos[i3 + 1] = 0.012 + Math.sin(t * 2.2 + pSeed[k]) * 0.008;
           }
 
-          // Fade out naturally as owning swan dabbles or time expires
           const owner = pOwner[k] >= 0 ? swans[pOwner[k]] : null;
           if (owner && owner.feedState === "dabble") {
-            const dBeak = Math.hypot(pPos[i3] - (owner.x + owner.dir * 0.42), pPos[i3 + 2] - owner.z);
-            if (dBeak < 0.65 && owner.dabbleTimer < 2.2) {
-              pLife[k] += rawDt * 3.8;
+            const reach = owner.height * 0.56;
+            const bx = owner.x + Math.sin(owner.heading) * reach;
+            const bz = owner.z + Math.cos(owner.heading) * reach;
+            const dBeak = Math.hypot(pPos[i3] - bx, pPos[i3 + 2] - bz);
+            if (dBeak < 0.72 && owner.dabbleTimer < 2.25) {
+              pLife[k] += rawDt * 4.0;
             }
           }
           pAlpha[k] = Math.max(0, 1.0 - Math.pow(progress, 2.5));
@@ -1458,6 +1066,9 @@ export default function ThreeBackground({ dark = true }) {
       pAlphaAttr.needsUpdate = true;
       pAngleAttr.needsUpdate = true;
 
+      const aspectFactor = Math.max(0.75, camera.aspect / 1.77);
+
+      // Update each articulated 3D swan
       for (let i = 0; i < swans.length; i++) {
         const s = swans[i];
 
@@ -1465,94 +1076,81 @@ export default function ThreeBackground({ dark = true }) {
         if (s.alertTimer > 0) s.alertTimer = Math.max(0, s.alertTimer - dt);
         s.speedBoost *= Math.exp(-1.5 * dt);
 
-        // Smooth 3D foreshortened pivot turn when switching swim direction for feeding
-        if (s.turningTo !== 0) {
-          s.turnPhase = Math.min(1, s.turnPhase + dt / 0.62);
-          const cosSquash = Math.abs(Math.cos(s.turnPhase * Math.PI));
-          s.turnSquash = Math.max(0.18, cosSquash);
-
-          if (s.turnPhase >= 0.5 && s.dir !== s.turningTo) {
-            s.dir = s.turningTo;
-            const newSprite = getSpriteForSwan(s.isBlack, s.dir);
-            if (newSprite) {
-              s.hitMask = newSprite.hitMask;
-              s.bodyUniforms.uMap.value = newSprite.texture;
-              s.reflUniforms.uMap.value = newSprite.texture;
-              s.bodyUniforms.uDir.value = s.dir;
-              s.reflUniforms.uDir.value = s.dir;
-            }
-            _proj.set(s.x, 0, s.z).project(camera);
-            spawnRippleAtUv(_proj.x * 0.5 + 0.5, _proj.y * 0.5 + 0.5, 0.45, 1.6);
-          }
-
-          if (s.turnPhase >= 1) {
-            s.turningTo = 0;
-            s.turnPhase = 0;
-            s.turnSquash = 1;
-          }
-        } else {
-          s.turnSquash += (1 - s.turnSquash) * (1 - Math.exp(-8.0 * dt));
-        }
-
-        const aspectFactor = Math.max(0.75, camera.aspect / 1.77);
-        const span = s.halfSpan * aspectFactor;
         let curSpeed = s.speed;
-        let slopeVz = Math.cos(t * 0.22 + s.phase) * 0.1;
-
-        let targetNeck = 0;
-        let targetWing = Math.max(0, Math.sin(t * 0.55 + s.phase * 2.1) - 0.65) * 1.4;
+        let targetNeckDip = 0;
+        let targetNeckTurn = Math.sin(t * 0.65 + s.phase) * 0.22;
+        let targetWingSpread = Math.max(0, Math.sin(t * 0.52 + s.phase * 2.1) - 0.55) * 0.26;
         let targetRouse = 0;
-        let targetTail = 0;
+        let targetTailWag = 0;
         let targetChest = 0;
         let feedWakeBoost = 0;
 
         if (s.feedState === "approach") {
           s.feedTimer -= dt;
-          const stopX = s.feedTargetX - s.dir * 0.42;
-          const stopZ = s.feedTargetZ;
-          const dx = stopX - s.x;
-          const dz = stopZ - s.z;
+          const dx = s.feedTargetX - s.x;
+          const dz = s.feedTargetZ - s.z;
           const dist = Math.hypot(dx, dz);
+          const desiredReach = s.height * 0.55;
 
-          if (dist < 0.26 || s.feedTimer <= 0) {
+          if (dist <= desiredReach + 0.14 || s.feedTimer <= 0) {
             s.feedState = "dabble";
-            s.dabbleTimer = 2.8;
+            s.dabbleTimer = 2.85;
             s.peckPulseLock = false;
             _proj.set(s.feedTargetX, 0, s.feedTargetZ).project(camera);
             spawnRippleAtUv(_proj.x * 0.5 + 0.5, _proj.y * 0.5 + 0.5, 0.72, 1.85);
           } else {
-            const swimSpeed = (0.76 + Math.min(0.48, dist * 0.16)) * (s.turningTo !== 0 ? 0.35 : 1.0);
-            curSpeed = swimSpeed;
-            const vx = (dx / dist) * swimSpeed;
-            const vz = (dz / dist) * swimSpeed;
-            s.x += vx * dt;
-            s.z += vz * dt;
-            slopeVz = vz * 0.75;
-            targetNeck = 0.14;
-            targetChest = 0.26;
+            s.targetHeading = Math.atan2(dx, dz);
+            const headingErr = wrapAngle(s.targetHeading - s.heading);
+            const turnStep = THREE.MathUtils.clamp(headingErr, -2.4 * dt, 2.4 * dt);
+            s.yawRate = turnStep / Math.max(dt, 0.001);
+            s.heading = wrapAngle(s.heading + turnStep);
+
+            const alignFactor = 0.28 + 0.72 * Math.max(0, Math.cos(headingErr));
+            curSpeed = (0.82 + Math.min(0.45, dist * 0.14)) * alignFactor;
+            s.x += Math.sin(s.heading) * curSpeed * dt;
+            s.z += Math.cos(s.heading) * curSpeed * dt;
+
+            targetNeckDip = -0.08;
+            targetNeckTurn = headingErr * 0.45;
+            targetChest = 0.06;
             feedWakeBoost = 0.65;
           }
         } else if (s.feedState === "dabble") {
           s.dabbleTimer -= dt;
-          curSpeed = 0.05;
-          s.x += s.dir * curSpeed * dt;
-          slopeVz = 0;
+          const dx = s.feedTargetX - s.x;
+          const dz = s.feedTargetZ - s.z;
+          const crumbDist = Math.hypot(dx, dz);
+          if (crumbDist > 0.55) {
+            s.targetHeading = Math.atan2(dx, dz);
+            const headingErr = wrapAngle(s.targetHeading - s.heading);
+            if (Math.abs(headingErr) < 1.15) {
+              s.heading = wrapAngle(s.heading + THREE.MathUtils.clamp(headingErr, -0.9 * dt, 0.9 * dt));
+            }
+          }
+          s.yawRate *= Math.exp(-5.0 * dt);
+          curSpeed = 0.04;
+          s.x += Math.sin(s.heading) * curSpeed * dt;
+          s.z += Math.cos(s.heading) * curSpeed * dt;
 
-          // 3 rhythmic dabble pecks dipping beak into water at clicked coordinate
-          const elapsed = 2.8 - s.dabbleTimer;
+          // Deep 3-peck neck plunge reaching beak tip cleanly to water surface y = 0
+          const elapsed = 2.85 - s.dabbleTimer;
           const peckWave = Math.sin(elapsed * 6.8);
-          targetNeck = -0.60 + 0.18 * peckWave;
-          targetTail = 0.42 + 0.15 * -peckWave;
-          targetChest = 0.12;
+          targetNeckDip = 0.72 + 0.18 * peckWave;
+          targetNeckTurn = Math.sin(elapsed * 4.1) * 0.12;
+          targetTailWag = Math.sin(elapsed * 9.5) * 0.18;
           feedWakeBoost = 0.45;
 
-          if (peckWave < -0.82 && !s.peckPulseLock) {
+          if (peckWave > 0.78 && !s.peckPulseLock) {
             s.peckPulseLock = true;
-            const beakX = s.x + s.dir * 0.46;
-            _proj.set(beakX, 0, s.z).project(camera);
-            spawnRippleAtUv(_proj.x * 0.5 + 0.5, _proj.y * 0.5 + 0.5, 0.52, 1.45);
-            spawnSplashParticles(beakX, s.z, 4, 0.55);
-          } else if (peckWave > 0.1) {
+            // Exact canonical beak tip rotated around neckPivotYZ (0.22, 0.16)
+            const a = s.neckDip;
+            const beakZ = (0.16 + 0.50 * Math.sin(a) + 0.32 * Math.cos(a)) * s.height;
+            const bx = s.x + Math.sin(s.heading) * beakZ;
+            const bz = s.z + Math.cos(s.heading) * beakZ;
+            _proj.set(bx, 0, bz).project(camera);
+            spawnRippleAtUv(_proj.x * 0.5 + 0.5, _proj.y * 0.5 + 0.5, 0.58, 1.5);
+            spawnSplashParticles(bx, bz, 5, 0.55);
+          } else if (peckWave < 0.0) {
             s.peckPulseLock = false;
           }
 
@@ -1562,120 +1160,240 @@ export default function ThreeBackground({ dark = true }) {
           }
         } else if (s.feedState === "settle") {
           s.dabbleTimer -= dt;
+          s.yawRate *= Math.exp(-5.0 * dt);
           curSpeed = s.speed * 0.75;
-          s.x += s.dir * curSpeed * dt;
+          s.x += Math.sin(s.heading) * curSpeed * dt;
+          s.z += Math.cos(s.heading) * curSpeed * dt;
           const settleFrac = Math.max(0, s.dabbleTimer / 1.35);
-          targetNeck = 0.16 * settleFrac;
-          targetRouse = 0.36 * Math.sin(settleFrac * Math.PI);
-          targetTail = Math.sin(t * 24.0 + s.phase) * 0.75 * settleFrac;
+          targetNeckDip = -0.10 * settleFrac;
+          targetRouse = 0.42 * Math.sin(settleFrac * Math.PI);
+          targetTailWag = Math.sin(t * 24.0 + s.phase) * 0.48 * settleFrac;
           if (s.dabbleTimer <= 0) {
             s.feedState = "none";
           }
         } else {
-          // Normal autonomous serene lake glide
-          s.grazingTimer -= dt;
-          if (s.grazingTimer <= 0) {
-            s.isGrazing = !s.isGrazing;
-            s.grazingTimer = s.isGrazing ? 2.4 + (i % 3) * 0.7 : 5.5 + (i % 4) * 1.4;
+          // Autonomous 3D curved lake patrol + rich swimming behaviors (cruise, busk, preen, dabble, wing-stretch)
+          s.moodTimer -= dt;
+          if (s.moodTimer <= 0) {
+            if (s.swimMood === "cruise") {
+              const r = (i * 0.37 + t * 0.19) % 1;
+              if (r < 0.36) {
+                s.swimMood = "preen";
+                s.moodDuration = 3.8 + (i % 3) * 0.6;
+                s.preenSide = -s.preenSide;
+              } else if (r < 0.72) {
+                s.swimMood = "dabble";
+                s.moodDuration = 3.4 + (i % 3) * 0.5;
+              } else {
+                s.swimMood = "stretch";
+                s.moodDuration = 2.6;
+              }
+            } else {
+              s.swimMood = "cruise";
+              s.moodDuration = 6.5 + (i % 4) * 1.8;
+            }
+            s.moodTimer = s.moodDuration;
+            s.swimRippleLock = false;
           }
 
-          const paddlePulse = 1.0 + 0.18 * Math.sin(t * 1.45 + s.phase);
-          curSpeed = s.speed * (s.isGrazing ? 0.42 : paddlePulse) + s.speedBoost;
-          s.x += s.dir * curSpeed * dt;
+          s.isGrazing = s.swimMood === "dabble";
+          // Advance lane progression only while cruising so preen/dabble/stretch never spin in place
+          const laneStepRate = s.swimMood === "cruise" ? 1.0 + s.speedBoost * 0.6 : 0.0;
+          s.orbitPhase += s.orbitFreq * dt * laneStepRate;
+          const leadPhase = s.orbitPhase + Math.sign(s.orbitFreq) * 0.16;
+          const wpX = s.homeX * aspectFactor + Math.cos(leadPhase) * s.rx * aspectFactor;
+          const wpZ = s.homeZ + Math.sin(leadPhase) * s.rz;
 
-          const zCurve = Math.sin(t * 0.22 + s.phase) * 0.45;
-          let laneAvoid = 0;
+          const tanX = -Math.sin(s.orbitPhase) * s.rx * aspectFactor * s.orbitFreq;
+          const tanZ = Math.cos(s.orbitPhase) * s.rz * s.orbitFreq;
+          const tanLen = Math.hypot(tanX, tanZ) || 1;
+          let steerX = tanX / tanLen + (wpX - s.x) * 0.24;
+          let steerZ = tanZ / tanLen + (wpZ - s.z) * 0.24;
+          let nearestMateAngle = 0;
+          let hasNearbyMate = false;
+
+          // Smooth lateral collision avoidance & pair-greeting glance (no 180-degree spin reversals)
           for (let j = 0; j < swans.length; j++) {
             if (i === j) continue;
             const o = swans[j];
-            const dx = o.x - s.x;
-            const dz = o.z - s.z;
-            const distSq = dx * dx + dz * dz;
-            if (distSq < 4.5 && distSq > 0.01) {
-              laneAvoid -= Math.sign(dz || (i % 2 ? 1 : -1)) * (2.1 - Math.sqrt(distSq)) * 0.45;
+            const adx = s.x - o.x;
+            const adz = s.z - o.z;
+            const distSq = adx * adx + adz * adz;
+            if (distSq < 11.5 && distSq > 2.2 && !hasNearbyMate) {
+              const relAng = wrapAngle(Math.atan2(o.x - s.x, o.z - s.z) - s.heading);
+              if (Math.abs(relAng) < 1.35) {
+                nearestMateAngle = relAng * 0.42;
+                hasNearbyMate = true;
+              }
+            }
+            if (distSq < 5.0 && distSq > 0.001) {
+              const dist = Math.sqrt(distSq);
+              const push = ((2.24 - dist) / 2.24) * 0.65;
+              // Deflect laterally around nearby swans rather than spinning backward
+              const fwdX = Math.sin(s.heading);
+              const fwdZ = Math.cos(s.heading);
+              const sideX = fwdZ;
+              const sideZ = -fwdX;
+              const sideSign = adx * sideX + adz * sideZ >= 0 ? 1 : -1;
+              steerX += sideX * sideSign * push;
+              steerZ += sideZ * sideSign * push;
             }
           }
-          const targetZ = s.baseZ + zCurve + laneAvoid;
-          s.z += (targetZ - s.z) * (1 - Math.exp(-0.55 * dt));
 
-          if (s.dir > 0 && s.x > span) {
-            s.x = -span;
-          } else if (s.dir < 0 && s.x < -span) {
-            s.x = span;
+          let headingErr = 0;
+          if (s.swimMood === "cruise" && Math.hypot(steerX, steerZ) > 0.08) {
+            s.targetHeading = Math.atan2(steerX, steerZ);
+            headingErr = wrapAngle(s.targetHeading - s.heading);
+            const maxTurn = (0.48 + s.speedBoost * 0.45) * dt;
+            const turnStep = THREE.MathUtils.clamp(headingErr, -maxTurn, maxTurn);
+            s.yawRate = THREE.MathUtils.lerp(s.yawRate, turnStep / Math.max(dt, 0.001), 1 - Math.exp(-4.5 * dt));
+            s.heading = wrapAngle(s.heading + turnStep);
+          } else {
+            s.yawRate *= Math.exp(-6.0 * dt);
           }
 
-          const reactNorm = s.reactTimer > 0 ? Math.sin(Math.min(1, s.reactTimer / 2.6) * Math.PI) : 0;
-          const rouseBurst = s.reactTimer > 0.8 ? Math.sin(Math.min(1, (s.reactTimer - 0.8) / 1.8) * Math.PI) : 0;
-          const tailBurst = s.reactTimer > 0 && s.reactTimer < 1.3 ? Math.sin(t * 28.0 + s.phase) * (s.reactTimer / 1.3) : 0;
-          const alertLift = s.alertTimer > 0 ? Math.sin((s.alertTimer / 1.6) * Math.PI) * 0.16 : 0;
+          const paddleStroke = Math.sin(t * 2.1 + s.phase);
+          const paddlePulse = 1.0 + 0.24 * paddleStroke;
+          const speedScale =
+            s.swimMood === "cruise"
+              ? paddlePulse
+              : s.swimMood === "dabble"
+                ? 0.26
+                : 0.14;
+          curSpeed = (s.speed * speedScale + s.speedBoost) * (0.8 + 0.2 * Math.max(0, Math.cos(headingErr)));
+          s.x += Math.sin(s.heading) * curSpeed * dt;
+          s.z += Math.cos(s.heading) * curSpeed * dt;
 
-          targetNeck =
-            s.reactTimer > 0
-              ? Math.sin(s.reactTimer * 4.5) * 0.22 + 0.18 * reactNorm
-              : s.isGrazing
-                ? -0.46 + 0.08 * Math.sin(t * 3.1 + s.phase)
-                : alertLift;
-          targetRouse = rouseBurst;
-          targetTail = tailBurst;
-          targetChest = reactNorm;
-          feedWakeBoost = reactNorm * 0.85;
+          const reactNorm = s.reactTimer > 0 ? Math.sin(Math.min(1, s.reactTimer / 2.6) * Math.PI) : 0;
+          const rouseBurst = s.reactTimer > 0.7 ? Math.sin(Math.min(1, (s.reactTimer - 0.7) / 1.9) * Math.PI) : 0;
+          const tailBurst = s.reactTimer > 0 && s.reactTimer < 1.3 ? Math.sin(t * 28.0 + s.phase) * (s.reactTimer / 1.3) : 0;
+          const alertLift = s.alertTimer > 0 ? Math.sin((s.alertTimer / 1.6) * Math.PI) * 0.14 : 0;
+
+          if (s.reactTimer > 0) {
+            targetNeckDip = -0.22 * reactNorm + Math.sin(s.reactTimer * 5.0) * 0.10;
+            targetNeckTurn = headingErr * 0.38;
+            targetWingSpread = Math.max(targetWingSpread, reactNorm * 0.85);
+            targetRouse = rouseBurst;
+            targetTailWag = tailBurst * 0.45;
+            targetChest = reactNorm * 0.18;
+            feedWakeBoost = reactNorm * 0.85;
+          } else if (s.swimMood === "preen") {
+            const pFrac = 1.0 - Math.max(0, s.moodTimer / Math.max(0.1, s.moodDuration));
+            const ease = Math.sin(pFrac * Math.PI);
+            targetNeckDip = 0.26 * ease + Math.sin(t * 10.5 + s.phase) * 0.09 * ease;
+            targetNeckTurn = s.preenSide * 0.88 * ease + Math.sin(t * 7.8 + s.phase) * 0.16 * ease;
+            targetWingSpread = 0.66 * ease;
+            targetRouse = Math.max(0, Math.sin(t * 9.0 + s.phase)) * 0.24 * ease;
+            targetTailWag = Math.sin(t * 15.0 + s.phase) * 0.30 * ease;
+            targetChest = 0.04 * ease;
+            feedWakeBoost = 0.22 * ease;
+          } else if (s.swimMood === "dabble") {
+            const pFrac = 1.0 - Math.max(0, s.moodTimer / Math.max(0.1, s.moodDuration));
+            const ease = Math.sin(pFrac * Math.PI);
+            const dabWave = Math.sin(t * 6.2 + s.phase);
+            targetNeckDip = (0.64 + 0.15 * dabWave) * ease;
+            targetNeckTurn = Math.sin(t * 3.4 + s.phase) * 0.16 * ease;
+            targetTailWag = Math.sin(t * 8.5 + s.phase) * 0.18 * ease;
+            feedWakeBoost = 0.32 * ease;
+            if (dabWave > 0.85 && ease > 0.55 && !s.swimRippleLock) {
+              s.swimRippleLock = true;
+              const a = s.neckDip;
+              const beakZ = (0.16 + 0.50 * Math.sin(a) + 0.32 * Math.cos(a)) * s.height;
+              const bx = s.x + Math.sin(s.heading) * beakZ;
+              const bz = s.z + Math.cos(s.heading) * beakZ;
+              _proj.set(bx, 0, bz).project(camera);
+              spawnRippleAtUv(_proj.x * 0.5 + 0.5, _proj.y * 0.5 + 0.5, 0.38, 1.45);
+              spawnSplashParticles(bx, bz, 3, 0.40);
+            } else if (dabWave < 0.0) {
+              s.swimRippleLock = false;
+            }
+          } else if (s.swimMood === "stretch") {
+            const pFrac = 1.0 - Math.max(0, s.moodTimer / Math.max(0.1, s.moodDuration));
+            const archEnv = Math.sin(pFrac * Math.PI);
+            const flapBeat = Math.max(0, Math.sin(pFrac * Math.PI * 3.0));
+            targetNeckDip = -0.20 * archEnv;
+            targetNeckTurn = Math.sin(pFrac * Math.PI * 2.0) * 0.15;
+            targetWingSpread = 0.96 * archEnv;
+            targetRouse = 0.72 * archEnv * flapBeat;
+            targetChest = 0.22 * archEnv;
+            targetTailWag = pFrac > 0.72 ? Math.sin(t * 24.0 + s.phase) * 0.45 : 0;
+            feedWakeBoost = 0.75 * archEnv;
+            if (pFrac > 0.25 && pFrac < 0.72 && !s.swimRippleLock) {
+              s.swimRippleLock = true;
+              _proj.set(s.x, 0, s.z).project(camera);
+              spawnRippleAtUv(_proj.x * 0.5 + 0.5, _proj.y * 0.5 + 0.5, 0.62, 1.75);
+              spawnSplashParticles(s.x, s.z, 7, 0.65);
+            }
+          } else {
+            // Cruise: rhythmic paddling chest pitch, busking wing shields & social/mate glances
+            targetNeckDip = -alertLift + paddleStroke * 0.032;
+            targetNeckTurn = hasNearbyMate
+              ? nearestMateAngle + Math.sin(t * 0.7 + s.phase) * 0.12
+              : headingErr * 0.42 + Math.sin(t * 0.72 + s.phase) * 0.28;
+            targetWingSpread = (hasNearbyMate ? 0.46 : 0.14) + Math.max(0, Math.sin(t * 0.55 + s.phase * 2.1) - 0.35) * 0.42;
+            targetTailWag = Math.sin(t * 2.1 + s.phase) * 0.09;
+            targetChest = Math.max(0, paddleStroke) * 0.045 + (hasNearbyMate ? 0.05 : 0);
+            feedWakeBoost = Math.max(0, paddleStroke) * 0.18;
+          }
         }
 
-        s.neckAngle += (targetNeck - s.neckAngle) * (1 - Math.exp(-5.5 * dt));
-        s.wingLift += (targetWing - s.wingLift) * (1 - Math.exp(-2.2 * dt));
+        // Smooth exponential joint kinematics
+        s.neckDip += (targetNeckDip - s.neckDip) * (1 - Math.exp(-5.5 * dt));
+        s.neckTurn += (targetNeckTurn - s.neckTurn) * (1 - Math.exp(-4.0 * dt));
+        s.wingSpread += (targetWingSpread - s.wingSpread) * (1 - Math.exp(-2.8 * dt));
         s.wingRouse += (targetRouse - s.wingRouse) * (1 - Math.exp(-10.0 * dt));
-        s.tailWag += (targetTail - s.tailWag) * (1 - Math.exp(-14.0 * dt));
+        s.tailWag += (targetTailWag - s.tailWag) * (1 - Math.exp(-14.0 * dt));
         s.chestLift += (targetChest - s.chestLift) * (1 - Math.exp(-7.0 * dt));
         s.hoverGlow += ((state.hoveredIdx === s.idx || s.reactTimer > 0 || s.feedState !== "none" ? 1 : 0) - s.hoverGlow) * (1 - Math.exp(-6.0 * dt));
 
-        const bob = Math.sin(t * 1.65 + s.phase) * 0.012 + Math.sin(t * 11.0 + s.phase) * 0.022 * s.wingRouse;
-        const rollPitch = slopeVz * 0.03 * s.dir + Math.sin(t * 1.5 + s.phase) * 0.012 + s.wingRouse * 0.04 * s.dir;
+        // Drive 3D Photo-Inflated Swan Uniforms & Waterline Transforms
+        const bob = Math.sin(t * 1.75 + s.phase) * 0.015 + Math.sin(t * 11.0 + s.phase) * 0.022 * s.wingRouse;
+        const roll = THREE.MathUtils.clamp(-s.yawRate * 0.06, -0.09, 0.09) + Math.sin(t * 1.65 + s.phase) * 0.022;
+        const pitch = -s.chestLift * 0.24 + Math.cos(t * 2.1 + s.phase) * 0.014;
 
-        s.group.position.set(s.x, bob, s.z);
-        const camYaw = Math.atan2(camera.position.x - s.x, camera.position.z - s.z);
-        const subtleTurn = -slopeVz * 0.18 * s.dir;
-        s.group.rotation.y = camYaw + subtleTurn;
-        s.group.rotation.z = rollPitch;
+        s.root.position.set(s.x, 0, s.z);
+        s.root.rotation.y = s.heading;
 
-        const baseOrder = Math.round((s.z + 50) * 10);
-        s.reflMesh.renderOrder = baseOrder;
-        s.bodyMesh.renderOrder = baseOrder + 1;
+        s.bodyMesh.position.y = bob + s.chestLift * 0.06;
+        s.bodyMesh.rotation.x = pitch;
+        s.bodyMesh.rotation.z = roll;
 
-        const distRatio = Math.max(0, Math.min(1, (-s.z - 6.0) / 22.0));
-        const depthFade = distRatio * 0.42;
-        const edgeX = s.feedState !== "none" ? 1.0 : Math.max(0, Math.min(1, (span - Math.abs(s.x)) / Math.max(1.2, span * 0.16)));
+        s.reflMesh.position.y = -(bob + s.chestLift * 0.06) - 0.01;
+        s.reflMesh.rotation.x = -pitch;
+        s.reflMesh.rotation.z = -roll;
 
-        s.bodyUniforms.uTime.value = t;
-        s.bodyUniforms.uThemeMix.value = mixVal;
-        s.bodyUniforms.uDepthFade.value = depthFade;
-        s.bodyUniforms.uEdgeFade.value = edgeX;
-        s.bodyUniforms.uHoverGlow.value = s.hoverGlow;
-        s.bodyUniforms.uNeckAngle.value = s.neckAngle;
-        s.bodyUniforms.uWingLift.value = s.wingLift;
-        s.bodyUniforms.uWingRouse.value = s.wingRouse;
-        s.bodyUniforms.uTailWag.value = s.tailWag;
-        s.bodyUniforms.uChestLift.value = s.chestLift;
-        s.bodyUniforms.uTurnSquash.value = s.turnSquash;
+        const u = s.uniforms;
+        u.uTime.value = t;
+        u.uThemeMix.value = mixVal;
+        u.uNeckAngle.value = s.neckDip;
+        u.uNeckTurn.value = s.neckTurn;
+        u.uWingLift.value = s.wingSpread;
+        u.uWingRouse.value = s.wingRouse;
+        u.uTailWag.value = s.tailWag;
+        u.uChestLift.value = s.chestLift;
+        u.uHoverGlow.value = s.hoverGlow;
 
-        s.reflUniforms.uTime.value = t;
-        s.reflUniforms.uThemeMix.value = mixVal;
-        s.reflUniforms.uDepthFade.value = depthFade;
-        s.reflUniforms.uEdgeFade.value = edgeX;
-        s.reflUniforms.uNeckAngle.value = s.neckAngle;
-        s.reflUniforms.uWingLift.value = s.wingLift;
-        s.reflUniforms.uWingRouse.value = s.wingRouse;
-        s.reflUniforms.uTailWag.value = s.tailWag;
-        s.reflUniforms.uChestLift.value = s.chestLift;
-        s.reflUniforms.uTurnSquash.value = s.turnSquash;
+        const distRatio = Math.max(0, Math.min(1, (-s.z - 6.0) / 18.0));
+        const depthFade = distRatio * 0.44;
+        u.uDepthFade.value = depthFade;
+        s.contactMat.opacity = (0.44 - depthFade * 0.30) * (0.65 + 0.35 * mixVal);
 
-        const wakeIntensity = edgeX * (0.65 + curSpeed * 0.9 + (s.isGrazing ? 0.35 : 0) + feedWakeBoost);
-        const beakOffset = (s.isGrazing || s.feedState === "dabble" ? 0.42 : 0.0) * s.dir;
-        _proj.set(s.x + beakOffset, 0, s.z).project(camera);
+        // Project swan chest & true 3D swim vector onto screen UV for directional bow wake
+        const wakeIntensity = 0.65 + curSpeed * 0.88 + (s.isGrazing ? 0.3 : 0) + feedWakeBoost;
+        const dirX = Math.sin(s.heading);
+        const dirZ = Math.cos(s.heading);
+        _proj.set(s.x + dirX * 0.25, 0, s.z + dirZ * 0.25).project(camera);
+        _projAhead.set(s.x + dirX * 1.25, 0, s.z + dirZ * 1.25).project(camera);
+
         const uvX = _proj.x * 0.5 + 0.5;
         const uvY = _proj.y * 0.5 + 0.5;
-        const distCam = Math.max(4, camera.position.distanceTo(s.group.position));
+        const distCam = Math.max(4, camera.position.distanceTo(s.root.position));
         lakeUniforms.uSwanUV.value[i].set(uvX, uvY, Math.min(1.0, 6.2 / distCam), wakeIntensity);
-        lakeUniforms.uSwanDir.value[i] = s.dir;
+
+        const sx = (_projAhead.x - _proj.x) * camera.aspect;
+        const sy = _projAhead.y - _proj.y;
+        const sl = Math.hypot(sx, sy) || 1;
+        lakeUniforms.uSwanDir.value[i].set(sx / sl, sy / sl);
       }
 
       if (!document.hidden) {

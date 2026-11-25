@@ -32,6 +32,42 @@ const CURRENCIES = [
   { code: "AUD", symbol: "A$", label: "Australian Dollar" },
 ];
 
+function computeSolarElevationDeg(date, lat, lon) {
+  const rad = Math.PI / 180;
+  const d = date.getTime() / 86400000 - 10957.5;
+  const g = ((357.528 + 0.9856003 * d) % 360) * rad;
+  const L = (280.46 + 0.9856474 * d) % 360;
+  const lambda = (L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad;
+  const eps = (23.439 - 0.0000004 * d) * rad;
+  const sinDec = Math.sin(eps) * Math.sin(lambda);
+  const cosDec = Math.sqrt(Math.max(0, 1 - sinDec * sinDec));
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda)) / rad;
+  const gmst = 280.46061837 + 360.98564736629 * d;
+  const ha = (gmst + lon - ra) * rad;
+  const latRad = lat * rad;
+  const sinAlt = Math.sin(latRad) * sinDec + Math.cos(latRad) * cosDec * Math.cos(ha);
+  return Math.asin(Math.max(-1, Math.min(1, sinAlt))) / rad;
+}
+
+function readStoredCoords() {
+  try {
+    const raw = localStorage.getItem("user_coords");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && Number.isFinite(parsed.lat) && Number.isFinite(parsed.lon) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isNightAtLocation(date, coords) {
+  if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lon)) {
+    return computeSolarElevationDeg(date, coords.lat, coords.lon) <= 0.5;
+  }
+  const h = date.getHours();
+  return h >= 18 || h < 6;
+}
+
 export default function App() {
   const [expenses, setExpenses] = useState([]);
   const [monthlyIncome, setMonthlyIncome] = useState(0);
@@ -54,7 +90,19 @@ export default function App() {
   const [lastDeleted, setLastDeleted] = useState(null);
   const [sections, setSections] = useState([]);
   const [newSectionTitle, setNewSectionTitle] = useState("");
-  const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("theme_dark") === "true"; } catch { return false; } });
+  const [themeMode, setThemeMode] = useState(() => {
+    try {
+      const savedMode = localStorage.getItem("theme_mode");
+      if (savedMode === "auto" || savedMode === "light" || savedMode === "dark") return savedMode;
+      return "auto";
+    } catch {
+      return "auto";
+    }
+  });
+  const [geoCoords, setGeoCoords] = useState(() => readStoredCoords());
+  const [autoNight, setAutoNight] = useState(() => isNightAtLocation(new Date(), readStoredCoords()));
+  const darkMode = themeMode === "dark" ? true : themeMode === "light" ? false : autoNight;
+  const toggleTheme = () => setThemeMode(darkMode ? "light" : "dark");
   const [syncStatus, setSyncStatus] = useState(supabaseUrl ? "loading" : "not-configured");
   const [syncError, setSyncError] = useState("");
   const [cloudLoaded, setCloudLoaded] = useState(false);
@@ -126,7 +174,42 @@ export default function App() {
     setPendingDuplicate(null); setError(""); setCurrency("USD"); setPendingConfirmation(null);
   };
 
-  useEffect(() => { try { localStorage.setItem("theme_dark", darkMode ? "true" : "false"); } catch { } }, [darkMode]);
+  useEffect(() => {
+    try {
+      localStorage.setItem("theme_mode", themeMode);
+      localStorage.setItem("theme_dark", darkMode ? "true" : "false");
+    } catch { }
+  }, [themeMode, darkMode]);
+
+  useEffect(() => {
+    if (themeMode !== "auto") return;
+    const syncSolarTheme = () => setAutoNight(isNightAtLocation(new Date(), geoCoords));
+    syncSolarTheme();
+    const timer = setInterval(syncSolarTheme, 60000);
+    return () => clearInterval(timer);
+  }, [themeMode, geoCoords]);
+
+  useEffect(() => {
+    if (themeMode !== "auto") return;
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    let cancelled = false;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (cancelled) return;
+        const lat = Number(pos.coords.latitude.toFixed(2));
+        const lon = Number(pos.coords.longitude.toFixed(2));
+        setGeoCoords((prev) => {
+          if (prev && prev.lat === lat && prev.lon === lon) return prev;
+          const next = { lat, lon };
+          try { localStorage.setItem("user_coords", JSON.stringify(next)); } catch { }
+          return next;
+        });
+      },
+      () => {},
+      { maximumAge: 1800000, timeout: 8000 }
+    );
+    return () => { cancelled = true; };
+  }, [themeMode]);
   useEffect(() => {
     const t = setInterval(() => setLiveNow(new Date()), 1000);
     return () => clearInterval(t);
@@ -767,7 +850,7 @@ export default function App() {
             <span className="login-logo-icon"><Wallet size={20} /></span>
             Money Dashboard
           </div>
-          <button className="small-ghost-btn" onClick={() => setDarkMode(!darkMode)}>{darkMode ? <Sun size={15} /> : <Moon size={15} />} {darkMode ? "Light mode" : "Dark mode"}</button>
+          <button className="small-ghost-btn" onClick={toggleTheme}>{darkMode ? <Sun size={15} /> : <Moon size={15} />} {darkMode ? "Light mode" : "Dark mode"}</button>
         </div>
 
         <div className="login-wrap" style={{ gridTemplateColumns: "1fr", maxWidth: 420 }}>
@@ -1013,10 +1096,37 @@ export default function App() {
 
             <div className="field" style={{ marginBottom: 16 }}>
               <label>Appearance</label>
-              <button className="white-btn" onClick={() => setDarkMode(!darkMode)} style={{ width: "100%", justifyContent: "center" }}>
-                {darkMode ? <Sun size={16} /> : <Moon size={16} />}
-                Switch to {darkMode ? "Light" : "Dark"} Mode
-              </button>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                <button
+                  type="button"
+                  className={themeMode === "auto" ? "pill active" : "white-btn"}
+                  onClick={() => setThemeMode("auto")}
+                  style={{ justifyContent: "center" }}
+                >
+                  Auto
+                </button>
+                <button
+                  type="button"
+                  className={themeMode === "light" ? "pill active" : "white-btn"}
+                  onClick={() => setThemeMode("light")}
+                  style={{ justifyContent: "center" }}
+                >
+                  <Sun size={15} /> Light
+                </button>
+                <button
+                  type="button"
+                  className={themeMode === "dark" ? "pill active" : "white-btn"}
+                  onClick={() => setThemeMode("dark")}
+                  style={{ justifyContent: "center" }}
+                >
+                  <Moon size={15} /> Dark
+                </button>
+              </div>
+              <small style={{ color: "var(--ink-dim)", fontSize: 12 }}>
+                {themeMode === "auto"
+                  ? "Automatically switches between Light (morning/afternoon) and Dark (evening/night) using your local solar time."
+                  : `Manual override active (${themeMode === "dark" ? "Dark" : "Light"} mode).`}
+              </small>
             </div>
 
             <div className="field">
@@ -1081,7 +1191,7 @@ export default function App() {
           <label>Savings goal {currencySymbol} <input type="number" value={savingsGoal} onChange={(e) => setSavingsGoal(Number(e.target.value) || 0)} /></label>
           <button className="white-btn" onClick={exportCSV}><Download size={15} /> Export CSV</button>
           <button className="white-btn" onClick={resetAll}><RotateCcw size={15} /> Start Blank</button>
-          <button className="white-btn" onClick={() => setDarkMode(!darkMode)}>{darkMode ? <Sun size={15} /> : <Moon size={15} />} {darkMode ? "Light mode" : "Dark mode"}</button>
+          <button className="white-btn" onClick={toggleTheme}>{darkMode ? <Sun size={15} /> : <Moon size={15} />} {darkMode ? "Light mode" : "Dark mode"}</button>
           <button className="white-btn" onClick={syncNow}>Save to Supabase</button>
           {user && <button className="white-btn" onClick={signOut}><LogOut size={15} /> Sign out</button>}
         </div>
