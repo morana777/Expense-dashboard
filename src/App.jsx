@@ -121,7 +121,14 @@ export default function App() {
   const [verifyCode, setVerifyCode] = useState("");
 
   // Custom Routing State for Forgot/Reset Password
-  const [route, setRoute] = useState(window.location.hash || "#login");
+  const [route, setRoute] = useState(() => {
+    // Check hash on initial load, ignoring access tokens
+    const hash = window.location.hash;
+    if (hash.includes("error=")) return "#login";
+    if (hash.includes("#reset-password")) return "#reset-password";
+    if (hash.includes("#forgot-password")) return "#forgot-password";
+    return "#login";
+  });
 
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
@@ -154,7 +161,18 @@ export default function App() {
 
   // Listen to Hash changes for routing
   useEffect(() => {
-    const handleHashChange = () => setRoute(window.location.hash || "#login");
+    const handleHashChange = () => {
+      const currentHash = window.location.hash;
+      
+      // Ignore Supabase's automatic hash injections (access_token, error_description, etc)
+      if (currentHash.includes("access_token") || currentHash.includes("error_description")) {
+        return; 
+      }
+      
+      setRoute(currentHash || "#login");
+    };
+    
+    handleHashChange(); // Run once on load
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
@@ -248,8 +266,11 @@ export default function App() {
             setSettingsMsg("Your changes have been successfully confirmed!");
             setPendingConfirmation(null);
           }
-          // Supabase fires PASSWORD_RECOVERY when user clicks the email link
+          
+          // THIS IS THE CRITICAL FIX
           if (event === "PASSWORD_RECOVERY") {
+            // Force the app to show the reset password screen
+            setRoute("#reset-password");
             window.location.hash = "#reset-password";
           }
         }
@@ -314,9 +335,10 @@ export default function App() {
     if (!authEmail) { setAuthMsg("Enter your email address first."); return; }
 
     setAuthMsg("");
+    
+    // Ensure this matches your routing hash exactly
     const { error } = await client.auth.resetPasswordForEmail(authEmail, {
-      // This explicitly points to the #reset-password hash
-      redirectTo: `${window.location.origin}${window.location.pathname}#reset-password`,
+      redirectTo: `${window.location.origin}/#reset-password`, 
     });
 
     if (error) { setAuthMsg(error.message); return; }
