@@ -13,7 +13,11 @@ async function getSupabase() {
   if (!supabaseUrl || !supabaseKey) return null;
   try {
     const mod = await import("@supabase/supabase-js");
-    supabaseClient = mod.createClient(supabaseUrl, supabaseKey);
+    // PKCE flow: the reset email link carries a one-time ?code= instead of an
+    // access token in the URL. The app trades the code for a session on load.
+    supabaseClient = mod.createClient(supabaseUrl, supabaseKey, {
+      auth: { flowType: "pkce" },
+    });
     return supabaseClient;
   } catch { return null; }
 }
@@ -255,6 +259,30 @@ export default function App() {
       const client = await getSupabase();
       if (!client) return;
 
+      // PKCE password recovery: the reset email link carries a one-time ?code= in the URL
+      // (no access token in the address bar any more). Trade it for a session, then wipe it.
+      const recoveryParams = new URLSearchParams(window.location.search);
+      const recoveryCode = recoveryParams.get("code");
+      if (recoveryCode) {
+        try { await client.auth.exchangeCodeForSession(recoveryCode); } catch { /* the client may already have exchanged it on init */ }
+        // The client can also auto-exchange the code on init, so verify by session, not by the call above.
+        let recoverySession = null;
+        for (let i = 0; i < 6; i++) {
+          const { data: sessData } = await client.auth.getSession();
+          if (sessData.session) { recoverySession = sessData.session; break; }
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        if (!cancelled && recoverySession) {
+          setUser(recoverySession.user);
+          setRoute("#reset-password");
+        } else if (!cancelled) {
+          setAuthMsg("That reset link has expired or was already used. Go back to sign in and request a new one.");
+          setRoute("#reset-password");
+        }
+        // Wipe the one-time code from the address bar.
+        window.history.replaceState({}, "", "/#reset-password");
+      }
+
       const { data } = await client.auth.getSession();
       if (!cancelled && data.session) setUser(data.session.user);
 
@@ -353,11 +381,21 @@ export default function App() {
     if (newPassword !== confirmPassword) { setAuthMsg("Passwords do not match."); return; }
 
     setAuthMsg("");
+    // The reset link must have given us a session first — without it this fails with "Auth session missing!"
+    const { data: { session } } = await client.auth.getSession();
+    if (!session) {
+      setAuthMsg("This reset link has expired or was already used. Go back to sign in and request a new reset link.");
+      return;
+    }
     const { error } = await client.auth.updateUser({ password: newPassword });
     if (error) { setAuthMsg(error.message); return; }
 
     setNewPassword("");
     setConfirmPassword("");
+    // Sign out of the one-time recovery session so you land on the sign-in page fresh.
+    await client.auth.signOut();
+    setUser(null);
+    setRoute("#login");
     window.location.hash = "#login";
     setAuthMsg("Password successfully reset! You can now sign in.");
   };
