@@ -90,6 +90,8 @@ export default function App() {
   const [lastDeleted, setLastDeleted] = useState(null);
   const [sections, setSections] = useState([]);
   const [newSectionTitle, setNewSectionTitle] = useState("");
+  
+  // Theme state
   const [themeMode, setThemeMode] = useState(() => {
     try {
       const savedMode = localStorage.getItem("theme_mode");
@@ -103,6 +105,7 @@ export default function App() {
   const [autoNight, setAutoNight] = useState(() => isNightAtLocation(new Date(), readStoredCoords()));
   const darkMode = themeMode === "dark" ? true : themeMode === "light" ? false : autoNight;
   const toggleTheme = () => setThemeMode(darkMode ? "light" : "dark");
+
   const [syncStatus, setSyncStatus] = useState(supabaseUrl ? "loading" : "not-configured");
   const [syncError, setSyncError] = useState("");
   const [cloudLoaded, setCloudLoaded] = useState(false);
@@ -210,6 +213,7 @@ export default function App() {
     );
     return () => { cancelled = true; };
   }, [themeMode]);
+
   useEffect(() => {
     const t = setInterval(() => setLiveNow(new Date()), 1000);
     return () => clearInterval(t);
