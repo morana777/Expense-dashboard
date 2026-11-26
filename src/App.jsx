@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, CartesianGrid, Legend } from "recharts";
 import { Wallet, TrendingUp, TrendingDown, PiggyBank, Search, Trash2, Target, Download, RotateCcw, AlertTriangle, Undo2, Plus, Pencil, Moon, Sun, CalendarDays, Upload, Printer, LogIn, LogOut, Zap, Lock, ShieldCheck, Settings, X, Mail, Key, Eye, EyeOff, DollarSign, CheckCircle, ArrowLeft } from "lucide-react";
 import ThreeBackground from "./ThreeBackground.jsx";
@@ -70,6 +70,67 @@ function isNightAtLocation(date, coords) {
   }
   const h = date.getHours();
   return h >= 18 || h < 6;
+}
+
+// Count-up animation: animates a number from its current value to `target`
+// whenever the target changes (e.g. when the dashboard opens and data loads).
+// Respects prefers-reduced-motion by jumping straight to the target.
+function useCountUp(target, duration = 1100) {
+  const [value, setValue] = useState(0);
+  const shownRef = useRef(0);
+  useEffect(() => {
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const from = shownRef.current;
+    if (reduceMotion || from === target) {
+      shownRef.current = target;
+      setValue(target);
+      return;
+    }
+    let raf;
+    const start = performance.now();
+    const tick = (now) => {
+      const p = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      const v = from + (target - from) * eased;
+      shownRef.current = v;
+      setValue(v);
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+  return value;
+}
+
+// Circular progress ring (SVG). `pct` is 0..1; drive it with the animated
+// value from useCountUp so the ring fills in sync with the number inside.
+function ProgressRing({ pct, size = 124, stroke = 11, children }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const clamped = Math.max(0, Math.min(1, pct));
+  return (
+    <div className="ring-wrap" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="ring-svg">
+        <circle cx={size / 2} cy={size / 2} r={r} className="ring-track" strokeWidth={stroke} fill="none" />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          className="ring-fill"
+          strokeWidth={stroke}
+          fill="none"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - clamped)}
+          strokeLinecap="round"
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+      </svg>
+      <div className="ring-center">{children}</div>
+    </div>
+  );
 }
 
 export default function App() {
@@ -582,6 +643,17 @@ export default function App() {
   const flexList = filtered.filter((e) => !isFixedExpense(e));
   const fixedTotal = fixedList.reduce((s, e) => s + Number(e.amount || 0), 0);
   const flexTotal = flexList.reduce((s, e) => s + Number(e.amount || 0), 0);
+
+  // Animated numbers for the dashboard open: every headline figure counts up
+  // from 0 (or its previous value) whenever it changes.
+  const animatedIncome = useCountUp(monthlyIncome);
+  const animatedTotal = useCountUp(total);
+  const animatedBalance = useCountUp(balance);
+  const animatedSavings = useCountUp(savings);
+  const animatedFixed = useCountUp(fixedTotal);
+  const animatedFlex = useCountUp(flexTotal);
+  const spentPct = monthlyIncome > 0 ? Math.min(total / monthlyIncome, 1) : 0;
+  const animatedSpentPct = useCountUp(spentPct);
 
   const monthlyData = [
     { month: "Jun", spent: 0, income: monthlyIncome },
@@ -1286,10 +1358,11 @@ export default function App() {
       )}
 
       <div className="stats">
-        <div className="card stat"><div className="stat-icon green"><Wallet size={22} /></div><div><span>Monthly Income</span><strong>{currencySymbol}{monthlyIncome.toFixed(2)}</strong><small>Your real income</small></div></div>
-        <div className="card stat"><div className="stat-icon red"><TrendingDown size={22} /></div><div><span>Total Spent</span><strong>{currencySymbol}{total.toFixed(2)}</strong><small>{monthExpenses.length} transactions</small></div></div>
-        <div className="card stat"><div className="stat-icon blue"><TrendingUp size={22} /></div><div><span>Balance Left</span><strong className={balance < 0 ? "danger" : "good"}>{currencySymbol}{balance.toFixed(2)}</strong><small>{currencySymbol}{dailyAvg.toFixed(2)} / day avg</small></div></div>
-        <div className="card stat"><div className="stat-icon purple"><PiggyBank size={22} /></div><div><span>Savings</span><strong>{currencySymbol}{savings.toFixed(2)}</strong><small>Goal {currencySymbol}{savingsGoal} - {savingsPct}%</small></div></div>
+        <div className="card stat"><div className="stat-icon green"><Wallet size={22} /></div><div><span>Monthly Income</span><strong>{currencySymbol}{animatedIncome.toFixed(2)}</strong><small>Your real income</small></div></div>
+        <div className="card stat"><div className="stat-icon red"><TrendingDown size={22} /></div><div><span>Total Spent</span><strong>{currencySymbol}{animatedTotal.toFixed(2)}</strong><small>{monthExpenses.length} transactions</small></div></div>
+        <div className="card stat"><div className="stat-icon blue"><TrendingUp size={22} /></div><div><span>Balance Left</span><strong className={balance < 0 ? "danger" : "good"}>{currencySymbol}{animatedBalance.toFixed(2)}</strong><small>{currencySymbol}{dailyAvg.toFixed(2)} / day avg</small></div></div>
+        <div className="card stat"><div className="stat-icon purple"><PiggyBank size={22} /></div><div><span>Savings</span><strong>{currencySymbol}{animatedSavings.toFixed(2)}</strong><small>Goal {currencySymbol}{savingsGoal} - {savingsPct}%</small></div></div>
+        <div className="card stat ring-card"><ProgressRing pct={animatedSpentPct} size={124} stroke={11}><strong>{currencySymbol}{animatedTotal.toFixed(0)}</strong><span>spent</span></ProgressRing><div><span>Spent of income</span><strong>{Math.round(animatedSpentPct * 100)}%</strong><small>{currencySymbol}{animatedIncome.toFixed(2)} income</small></div></div>
       </div>
 
       <div className="card quick-add">
@@ -1334,7 +1407,7 @@ export default function App() {
             </select>
           </div>
           <p className="box-note">Fixed repeats every month. Flexible is one-off.</p>
-          <div className="box-total">Fixed: {currencySymbol}{fixedTotal.toFixed(2)} / month &nbsp;•&nbsp; Flexible total: {currencySymbol}{flexTotal.toFixed(2)}</div>
+          <div className="box-total">Fixed: {currencySymbol}{animatedFixed.toFixed(2)} / month &nbsp;•&nbsp; Flexible total: {currencySymbol}{animatedFlex.toFixed(2)}</div>
         </div>
       </div>
 

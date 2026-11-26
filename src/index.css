@@ -11,8 +11,8 @@
 :root {
   /* Dark Mode: Midnight Obsidian-Slate Swan Lake */
   --bg-deep: #0b0f16;
-  --glass: rgba(13, 18, 27, 0.56);
-  --glass-strong: rgba(11, 16, 24, 0.68);
+  --glass: #121826;
+  --glass-strong: #0b1018;
   --stroke: rgba(203, 213, 225, 0.18);
   --stroke-strong: rgba(203, 213, 225, 0.32);
   --cyan: #cbd5e1;
@@ -31,8 +31,8 @@
 /* Light Mode: Misty Silver-Pearl Swan Lake */
 .app:not(.dark) {
   --bg-deep: #dfe4ec;
-  --glass: rgba(244, 246, 250, 0.56);
-  --glass-strong: rgba(246, 248, 251, 0.68);
+  --glass: #f4f6fa;
+  --glass-strong: #f6f8fb;
   --stroke: rgba(30, 41, 59, 0.14);
   --stroke-strong: rgba(30, 41, 59, 0.26);
   --ink: #0f172a;
@@ -106,7 +106,7 @@ body {
 }
 
 header {
-  background: linear-gradient(135deg, rgba(22, 29, 41, 0.62), rgba(14, 19, 28, 0.66) 55%, rgba(28, 36, 50, 0.62));
+  background: linear-gradient(135deg, #161d29, #0e131c 55%, #1c2432);
   border: 1px solid var(--stroke-strong);
   border-radius: 26px;
   padding: 30px 30px 26px;
@@ -114,12 +114,14 @@ header {
   backdrop-filter: blur(14px) saturate(110%);
   -webkit-backdrop-filter: blur(14px) saturate(110%);
   box-shadow: var(--shadow);
-  position: relative;
+  position: sticky;
+  top: 14px;
+  z-index: 40;
   overflow: hidden;
 }
 
 .app:not(.dark) header {
-  background: linear-gradient(135deg, rgba(244, 246, 250, 0.6), rgba(232, 237, 244, 0.64) 55%, rgba(222, 229, 239, 0.6));
+  background: linear-gradient(135deg, #f4f6fa, #e8edf4 55%, #dee5ef);
 }
 
 header::before {
@@ -279,7 +281,7 @@ header p {
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 16px;
   margin-top: 20px;
 }
@@ -301,6 +303,48 @@ header p {
   display: flex;
   gap: 14px;
   align-items: flex-start;
+}
+
+/* --- Animated count-up ring (spent of income) --- */
+.ring-card {
+  align-items: center;
+}
+
+.ring-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.ring-svg {
+  display: block;
+}
+
+.ring-track {
+  stroke: var(--stroke-strong);
+}
+
+.ring-fill {
+  stroke: var(--cyan);
+}
+
+.ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.ring-center strong {
+  font-size: 19px;
+  line-height: 1.1;
+}
+
+.ring-center span {
+  font-size: 12px;
+  color: var(--ink-dim);
 }
 
 .stat-icon {
