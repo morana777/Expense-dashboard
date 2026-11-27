@@ -99,7 +99,7 @@ export default function App() {
   // Settings state
   const [showSettings, setShowSettings] = useState(false);
 
-  const API_URL = "https://expense-dashboard.andromedavile.workers.dev/api";
+  const API_URL = "https:/expense-dashboard.andromedavile.workers.dev";
   const resetToBlank = () => {
     setExpenses([]);
     setMonthlyIncome(0);
