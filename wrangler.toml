@@ -17,3 +17,7 @@ not_found_handling = "single-page-application"
 enabled = false
 # ...
 
+[[d1_databases]]
+binding = "DB"
+database_name = "expense-dashboard-db"
+database_id = "6f3dc742-0417-4834-92b3-e71e4e975ddc"
