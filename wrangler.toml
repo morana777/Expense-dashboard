@@ -5,7 +5,8 @@
 # Your site goes live at https://expense-dashboard.moranakim777.workers.dev
 
 name = "expense-dashboard"
-compatibility_date = "2026-11-15"
+main = "src/worker.js"
+compatibility_date = "2026-11-01"
 
 [assets]
 directory = "./dist"

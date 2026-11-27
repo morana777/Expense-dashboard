@@ -1,32 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, CartesianGrid, Legend } from "recharts";
-import { Wallet, TrendingUp, TrendingDown, PiggyBank, Search, Trash2, Target, Download, RotateCcw, AlertTriangle, Undo2, Plus, Pencil, Moon, Sun, CalendarDays, Upload, Printer, LogIn, LogOut, Zap, Lock, ShieldCheck, Settings, X, Mail, Key, Eye, EyeOff, DollarSign, CheckCircle, ArrowLeft } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, PiggyBank, Search, Trash2, Download, AlertTriangle, Undo2, Moon, Sun, LogIn, LogOut, Zap, Lock, Settings, X, Eye, EyeOff } from "lucide-react";
 import ThreeBackground from "./ThreeBackground.jsx";
-
-const SUPABASE_SCHEMA = "expense_dashboard";
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-let supabaseClient = null;
-
-async function getSupabase() {
-  if (supabaseClient) return supabaseClient;
-  if (!supabaseUrl || !supabaseKey) return null;
-  try {
-    const mod = await import("@supabase/supabase-js");
-    // PKCE flow: the reset email link carries a one-time ?code= instead of an
-    // access token in the URL. The app trades the code for a session on load.
-    supabaseClient = mod.createClient(supabaseUrl, supabaseKey, {
-      auth: { flowType: "pkce" },
-    });
-    return supabaseClient;
-  } catch { return null; }
-}
 
 const categories = ["Food", "Housing", "Transport", "Entertainment", "Shopping", "Other"];
 const frequencies = ["One-time", "Daily", "Weekly", "Biweekly", "Monthly", "Quarterly", "Yearly"];
-const budgets = { Food: 300, Housing: 1000, Transport: 150, Entertainment: 100, Shopping: 250, Other: 100 };
-const COLORS_LIGHT = ["#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1"];
-const COLORS_DARK = ["#e2e8f0", "#cbd5e1", "#94a3b8", "#64748b", "#475569", "#334155"];
 const CURRENCIES = [
   { code: "USD", symbol: "$", label: "US Dollar" },
   { code: "EUR", symbol: "€", label: "Euro" },
@@ -36,53 +13,11 @@ const CURRENCIES = [
   { code: "AUD", symbol: "A$", label: "Australian Dollar" },
 ];
 
-function computeSolarElevationDeg(date, lat, lon) {
-  const rad = Math.PI / 180;
-  const d = date.getTime() / 86400000 - 10957.5;
-  const g = ((357.528 + 0.9856003 * d) % 360) * rad;
-  const L = (280.46 + 0.9856474 * d) % 360;
-  const lambda = (L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad;
-  const eps = (23.439 - 0.0000004 * d) * rad;
-  const sinDec = Math.sin(eps) * Math.sin(lambda);
-  const cosDec = Math.sqrt(Math.max(0, 1 - sinDec * sinDec));
-  const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda)) / rad;
-  const gmst = 280.46061837 + 360.98564736629 * d;
-  const ha = (gmst + lon - ra) * rad;
-  const latRad = lat * rad;
-  const sinAlt = Math.sin(latRad) * sinDec + Math.cos(latRad) * cosDec * Math.cos(ha);
-  return Math.asin(Math.max(-1, Math.min(1, sinAlt))) / rad;
-}
-
-function readStoredCoords() {
-  try {
-    const raw = localStorage.getItem("user_coords");
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed && Number.isFinite(parsed.lat) && Number.isFinite(parsed.lon) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function isNightAtLocation(date, coords) {
-  if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lon)) {
-    return computeSolarElevationDeg(date, coords.lat, coords.lon) <= 0.5;
-  }
-  const h = date.getHours();
-  return h >= 18 || h < 6;
-}
-
-// Count-up animation: animates a number from its current value to `target`
-// whenever the target changes (e.g. when the dashboard opens and data loads).
-// Respects prefers-reduced-motion by jumping straight to the target.
 function useCountUp(target, duration = 1100) {
   const [value, setValue] = useState(0);
   const shownRef = useRef(0);
   useEffect(() => {
-    const reduceMotion =
-      typeof window !== "undefined" &&
-      window.matchMedia &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduceMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const from = shownRef.current;
     if (reduceMotion || from === target) {
       shownRef.current = target;
@@ -105,8 +40,6 @@ function useCountUp(target, duration = 1100) {
   return value;
 }
 
-// Circular progress ring (SVG). `pct` is 0..1; drive it with the animated
-// value from useCountUp so the ring fills in sync with the number inside.
 function ProgressRing({ pct, size = 124, stroke = 11, children }) {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
@@ -116,15 +49,8 @@ function ProgressRing({ pct, size = 124, stroke = 11, children }) {
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="ring-svg">
         <circle cx={size / 2} cy={size / 2} r={r} className="ring-track" strokeWidth={stroke} fill="none" />
         <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          className="ring-fill"
-          strokeWidth={stroke}
-          fill="none"
-          strokeDasharray={c}
-          strokeDashoffset={c * (1 - clamped)}
-          strokeLinecap="round"
+          cx={size / 2} cy={size / 2} r={r} className="ring-fill" strokeWidth={stroke} fill="none"
+          strokeDasharray={c} strokeDashoffset={c * (1 - clamped)} strokeLinecap="round"
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
       </svg>
@@ -137,7 +63,6 @@ export default function App() {
   const [expenses, setExpenses] = useState([]);
   const [monthlyIncome, setMonthlyIncome] = useState(0);
   const [savingsGoal, setSavingsGoal] = useState(0);
-  const [openingBalance, setOpeningBalance] = useState(0);
   const [currency, setCurrency] = useState("USD");
   const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false);
 
@@ -148,456 +73,120 @@ export default function App() {
   const [frequency, setFrequency] = useState("One-time");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
-  const [monthFilter, setMonthFilter] = useState("All");
+  const [monthFilter] = useState("All");
   const [liveNow, setLiveNow] = useState(new Date());
-  const [sortBy, setSortBy] = useState("newest");
   const [error, setError] = useState("");
   const [lastDeleted, setLastDeleted] = useState(null);
-  const [sections, setSections] = useState([]);
-  const [newSectionTitle, setNewSectionTitle] = useState("");
-  
-  // Theme state
-  const [themeMode, setThemeMode] = useState(() => {
-    try {
-      const savedMode = localStorage.getItem("theme_mode");
-      if (savedMode === "auto" || savedMode === "light" || savedMode === "dark") return savedMode;
-      return "auto";
-    } catch {
-      return "auto";
-    }
-  });
-  const [geoCoords, setGeoCoords] = useState(() => readStoredCoords());
-  const [autoNight, setAutoNight] = useState(() => isNightAtLocation(new Date(), readStoredCoords()));
-  const darkMode = themeMode === "dark" ? true : themeMode === "light" ? false : autoNight;
-  const toggleTheme = () => setThemeMode(darkMode ? "light" : "dark");
 
-  const [syncStatus, setSyncStatus] = useState(supabaseUrl ? "loading" : "not-configured");
-  const [syncError, setSyncError] = useState("");
-  const [cloudLoaded, setCloudLoaded] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
+  const toggleTheme = () => setDarkMode(!darkMode);
+
   const [user, setUser] = useState(null);
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem("cf_jwt") || null);
 
-  // Auth State
+  // Auth State (Fixed: Added missing authMsg declaration)
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [showAuthPassword, setShowAuthPassword] = useState(false);
   const [authMode, setAuthMode] = useState("signin");
   const [authMsg, setAuthMsg] = useState("");
-  const [authStep, setAuthStep] = useState("form"); // "form", "verify"
-  const [verifyCode, setVerifyCode] = useState("");
 
-  // Custom Routing State for Forgot/Reset Password
-  const [route, setRoute] = useState(() => {
-    // Check hash on initial load, ignoring access tokens
-    const hash = window.location.hash;
-    if (hash.includes("error=")) return "#login";
-    if (hash.includes("#reset-password")) return "#reset-password";
-    if (hash.includes("#forgot-password")) return "#forgot-password";
-    return "#login";
-  });
-
-  const [editingId, setEditingId] = useState(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editAmount, setEditAmount] = useState("");
-  const [editCategory, setEditCategory] = useState("Food");
-  const [editDate, setEditDate] = useState("");
-  const [editFrequency, setEditFrequency] = useState("One-time");
-  const [bills, setBills] = useState([]);
-  const [billTitle, setBillTitle] = useState("");
-  const [billAmount, setBillAmount] = useState("");
-  const [billDue, setBillDue] = useState(new Date().toISOString().slice(0, 10));
-  const [showReport, setShowReport] = useState(false);
-  const [importMsg, setImportMsg] = useState("");
-  const [closedMonths, setClosedMonths] = useState([]);
-  const [pendingDuplicate, setPendingDuplicate] = useState(null);
-  const [history, setHistory] = useState([]);
+  const [bills] = useState([]);
   const [quickAmount, setQuickAmount] = useState("");
   const [quickTitle, setQuickTitle] = useState("");
   const [quickCategory, setQuickCategory] = useState("Food");
 
   // Settings state
   const [showSettings, setShowSettings] = useState(false);
-  const [newEmail, setNewEmail] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [settingsMsg, setSettingsMsg] = useState("");
-  const [settingsError, setSettingsError] = useState("");
-  const [pendingConfirmation, setPendingConfirmation] = useState(null);
 
-  // Listen to Hash changes for routing
-  useEffect(() => {
-    const handleHashChange = () => {
-      const currentHash = window.location.hash;
-      
-      // Ignore Supabase's automatic hash injections (access_token, error_description, etc)
-      if (currentHash.includes("access_token") || currentHash.includes("error_description")) {
-        return; 
-      }
-      
-      setRoute(currentHash || "#login");
-    };
-    
-    handleHashChange(); // Run once on load
-    window.addEventListener("hashchange", handleHashChange);
-    return () => window.removeEventListener("hashchange", handleHashChange);
-  }, []);
-
-  const failSync = (err) => {
-    const msg = err && err.message ? err.message : "Unknown Supabase error";
-    setSyncError(msg); setSyncStatus("error"); console.error("Supabase error:", err);
-  };
-
-  const saveSettingsRow = async (db, uid, values) => {
-    const { data: existing } = await db.from("settings").select("user_id").eq("user_id", uid).maybeSingle();
-    if (existing) return await db.from("settings").update(values).eq("user_id", uid);
-    return await db.from("settings").insert({ user_id: uid, ...values });
-  };
-
+  const API_URL = "https://expense-dashboard.andromedavile.workers.dev/api";
   const resetToBlank = () => {
-    setExpenses([]); setBills([]); setSections([]);
-    setMonthlyIncome(0); setSavingsGoal(0); setOpeningBalance(0);
-    setClosedMonths([]); setHistory([]); setLastDeleted(null);
-    setPendingDuplicate(null); setError(""); setCurrency("USD"); setPendingConfirmation(null);
+    setExpenses([]);
+    setMonthlyIncome(0);
+    setSavingsGoal(0);
+    setLastDeleted(null);
+    setError("");
+    setCurrency("USD");
   };
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("theme_mode", themeMode);
-      localStorage.setItem("theme_dark", darkMode ? "true" : "false");
-    } catch { }
-  }, [themeMode, darkMode]);
-
-  useEffect(() => {
-    if (themeMode !== "auto") return;
-    const syncSolarTheme = () => setAutoNight(isNightAtLocation(new Date(), geoCoords));
-    syncSolarTheme();
-    const timer = setInterval(syncSolarTheme, 60000);
-    return () => clearInterval(timer);
-  }, [themeMode, geoCoords]);
-
-  useEffect(() => {
-    if (themeMode !== "auto") return;
-    if (typeof navigator === "undefined" || !navigator.geolocation) return;
-    let cancelled = false;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        if (cancelled) return;
-        const lat = Number(pos.coords.latitude.toFixed(2));
-        const lon = Number(pos.coords.longitude.toFixed(2));
-        setGeoCoords((prev) => {
-          if (prev && prev.lat === lat && prev.lon === lon) return prev;
-          const next = { lat, lon };
-          try { localStorage.setItem("user_coords", JSON.stringify(next)); } catch { }
-          return next;
-        });
-      },
-      () => {},
-      { maximumAge: 1800000, timeout: 8000 }
-    );
-    return () => { cancelled = true; };
-  }, [themeMode]);
 
   useEffect(() => {
     const t = setInterval(() => setLiveNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // Load user session from localStorage on startup
   useEffect(() => {
-    if (!lastDeleted) return;
-    const t = setTimeout(() => setLastDeleted(null), 6000);
-    return () => clearTimeout(t);
-  }, [lastDeleted]);
-
-  const logHistory = (action, detail) => {
-    setHistory((prev) => [{ at: new Date().toISOString(), action, detail }, ...prev].slice(0, 50));
-  };
-  const isMonthClosed = (monthStr) => monthStr !== "All" && closedMonths.includes(monthStr);
-  const currentMonthClosed = isMonthClosed(monthFilter);
-
-  // Auth: get session on start and listen for changes
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const client = await getSupabase();
-      if (!client) return;
-
-      // PKCE password recovery: the reset email link carries a one-time ?code= in the URL
-      // (no access token in the address bar any more). Trade it for a session, then wipe it.
-      const recoveryParams = new URLSearchParams(window.location.search);
-      const recoveryCode = recoveryParams.get("code");
-      if (recoveryCode) {
-        try { await client.auth.exchangeCodeForSession(recoveryCode); } catch { /* the client may already have exchanged it on init */ }
-        // The client can also auto-exchange the code on init, so verify by session, not by the call above.
-        let recoverySession = null;
-        for (let i = 0; i < 6; i++) {
-          const { data: sessData } = await client.auth.getSession();
-          if (sessData.session) { recoverySession = sessData.session; break; }
-          await new Promise((r) => setTimeout(r, 500));
-        }
-        if (!cancelled && recoverySession) {
-          setUser(recoverySession.user);
-          setRoute("#reset-password");
-        } else if (!cancelled) {
-          setAuthMsg("That reset link has expired or was already used. Go back to sign in and request a new one.");
-          setRoute("#reset-password");
-        }
-        // Wipe the one-time code from the address bar.
-        window.history.replaceState({}, "", "/#reset-password");
-      }
-
-      const { data } = await client.auth.getSession();
-      if (!cancelled && data.session) setUser(data.session.user);
-
-      client.auth.onAuthStateChange((event, session) => {
-        if (!cancelled) {
-          setUser(session ? session.user : null);
-
-          if (event === "USER_UPDATED") {
-            setSettingsMsg("Your changes have been successfully confirmed!");
-            setPendingConfirmation(null);
-          }
-          
-          // THIS IS THE CRITICAL FIX
-          if (event === "PASSWORD_RECOVERY") {
-            // Force the app to show the reset password screen
-            setRoute("#reset-password");
-            window.location.hash = "#reset-password";
-          }
-        }
-      });
-    })();
-    return () => { cancelled = true; };
+    const token = localStorage.getItem("cf_jwt");
+    const savedUser = localStorage.getItem("cf_user");
+    if (token && savedUser) {
+      setAuthToken(token);
+      setUser(JSON.parse(savedUser));
+    }
   }, []);
 
-  const signInOrUp = async (e) => {
-    e.preventDefault();
-    const client = await getSupabase();
-    if (!client) { setAuthMsg("Supabase is not configured yet. Add .env keys first."); return; }
-    setAuthMsg("");
-    if (authMode === "signin") {
-      const { data, error } = await client.auth.signInWithPassword({ email: authEmail, password: authPassword });
-      if (error) { setAuthMsg(error.message); return; }
-      if (data.user) {
-        resetToBlank(); setUser(data.user); setAuthMsg("Signed in.");
-      }
-      return;
-    }
-    const { data, error } = await client.auth.signUp({ email: authEmail, password: authPassword, options: { data: { app: "expense-dashboard" } } });
-    if (error) { setAuthMsg(error.message); return; }
-    if (data.user) {
-      setVerifyCode(""); setAuthStep("verify");
-      setAuthMsg(`We sent a 6-digit code to ${authEmail}. Enter it below to verify your email.`);
-    } else {
-      setAuthMsg("Check your email to confirm, then sign in.");
-    }
-  };
-
-  const verifySignupCode = async (e) => {
-    e.preventDefault();
-    const client = await getSupabase();
-    if (!client) { setAuthMsg("Supabase is not configured yet."); return; }
-    const code = verifyCode.trim();
-    if (code.length !== 6) { setAuthMsg("That code should be 6 digits. Check your email again."); return; }
-    setAuthMsg("");
-    const { data, error } = await client.auth.verifyOtp({ email: authEmail, token: code, type: "signup" });
-    if (error) { setAuthMsg(error.message); return; }
-    const verifiedUser = data.user || data.session?.user;
-    if (verifiedUser) {
-      resetToBlank(); setUser(verifiedUser);
-      const c = await getSupabase();
-      if (c) await saveSettingsRow(c.schema(SUPABASE_SCHEMA), verifiedUser.id, { monthly_income: 0, savings_goal: 0, opening_balance: 0 });
-      setAuthStep("form"); setVerifyCode(""); setAuthMsg("Email verified. Welcome!");
-    }
-  };
-
-  const resendSignupCode = async () => {
-    const client = await getSupabase();
-    if (!client) { setAuthMsg("Supabase is not configured yet."); return; }
-    const { error } = await client.auth.resend({ type: "signup", email: authEmail });
-    if (error) setAuthMsg(error.message);
-    else setAuthMsg(`Sent a new code to ${authEmail}. Check your inbox and spam.`);
-  };
-
-  const handleForgotPassword = async (e) => {
-    e.preventDefault();
-    const client = await getSupabase();
-    if (!client) { setAuthMsg("Supabase is not configured yet."); return; }
-    if (!authEmail) { setAuthMsg("Enter your email address first."); return; }
-
-    setAuthMsg("");
-    
-    // Ensure this matches your routing hash exactly
-    const { error } = await client.auth.resetPasswordForEmail(authEmail, {
-      redirectTo: `${window.location.origin}/#reset-password`, 
-    });
-
-    if (error) { setAuthMsg(error.message); return; }
-    setAuthMsg(`If an account exists for ${authEmail}, a password reset link has been sent. Check your inbox.`);
-  };
-
-  const handleResetPasswordSubmit = async (e) => {
-    e.preventDefault();
-    const client = await getSupabase();
-    if (!client) { setAuthMsg("Supabase is not configured yet."); return; }
-    if (newPassword.length < 6) { setAuthMsg("Password must be at least 6 characters."); return; }
-    if (newPassword !== confirmPassword) { setAuthMsg("Passwords do not match."); return; }
-
-    setAuthMsg("");
-    // The reset link must have given us a session first — without it this fails with "Auth session missing!"
-    const { data: { session } } = await client.auth.getSession();
-    if (!session) {
-      setAuthMsg("This reset link has expired or was already used. Go back to sign in and request a new reset link.");
-      return;
-    }
-    const { error } = await client.auth.updateUser({ password: newPassword });
-    if (error) { setAuthMsg(error.message); return; }
-
-    setNewPassword("");
-    setConfirmPassword("");
-    // Sign out of the one-time recovery session so you land on the sign-in page fresh.
-    await client.auth.signOut();
-    setUser(null);
-    setRoute("#login");
-    window.location.hash = "#login";
-    setAuthMsg("Password successfully reset! You can now sign in.");
-  };
-
-  const signOut = async () => {
-    const client = await getSupabase();
-    if (client) await client.auth.signOut();
-    setUser(null); resetToBlank(); setCloudLoaded(false);
-    setSyncStatus(supabaseUrl ? "loading" : "not-configured");
-    setShowSettings(false);
-    window.location.hash = "#login";
-  };
-
-  // Supabase load with CRASH GUARD
+  // Fetch user data from Cloudflare Worker when logged in
   useEffect(() => {
-    if (!user) return;
+    if (!authToken) return;
     let cancelled = false;
     (async () => {
       try {
-        const client = await getSupabase();
-        if (!client) return;
-        setSyncStatus("syncing");
-        const db = client.schema(SUPABASE_SCHEMA);
-
-        const [expRes, billRes, secRes, itemRes, setRes] = await Promise.all([
-          db.from("expenses").select("*").eq("user_id", user.id).order("date", { ascending: false }),
-          db.from("bills").select("*").eq("user_id", user.id).order("due_date", { ascending: true }),
-          db.from("sections").select("*").eq("user_id", user.id).order("id", { ascending: true }),
-          db.from("section_items").select("*").eq("user_id", user.id).order("section_id", { ascending: true }).order("position", { ascending: true }),
-          db.from("settings").select("*").eq("user_id", user.id).maybeSingle(),
-        ]);
-
-        if (cancelled) return;
-
-        const firstErr = expRes.error || billRes.error || secRes.error || itemRes.error || setRes.error;
-        if (firstErr) {
-          console.error("Supabase Load Error:", firstErr);
-          failSync(firstErr);
-          setCloudLoaded(true);
-          return;
-        }
-
-        setExpenses((expRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), category: r.category || "Other", date: r.date, frequency: r.frequency || "One-time" })));
-        setBills((billRes.data || []).map((r) => ({ id: r.id, title: r.title, amount: Number(r.amount), dueDate: r.due_date, paid: !!r.paid })));
-
-        const itemsBySection = {};
-        (itemRes.data || []).forEach((r) => {
-          if (!itemsBySection[r.section_id]) itemsBySection[r.section_id] = [];
-          itemsBySection[r.section_id].push({ id: r.id, name: r.name, amount: Number(r.amount), note: r.note || "" });
+        const res = await fetch(`${API_URL}/data`, {
+          headers: { Authorization: `Bearer ${authToken}` }
         });
-
-        setSections((secRes.data || []).map((s) => ({ id: s.id, title: s.title, items: itemsBySection[s.id] || [] })));
-        setMonthlyIncome(setRes.data && setRes.data.monthly_income ? Number(setRes.data.monthly_income) : 0);
-        setSavingsGoal(setRes.data && setRes.data.savings_goal ? Number(setRes.data.savings_goal) : 0);
-        setOpeningBalance(setRes.data && setRes.data.opening_balance ? Number(setRes.data.opening_balance) : 0);
-
-        setClosedMonths([]);
-        setSyncError("");
-        setSyncStatus("synced");
-        setCloudLoaded(true);
-      } catch (err) {
+        if (!res.ok) throw new Error("Failed to fetch user data");
+        const data = await res.json();
         if (cancelled) return;
-        console.error("Fatal App Sync Error:", err);
-        setSyncError(err.message || "Failed to connect.");
-        setSyncStatus("error");
-        setCloudLoaded(true);
+
+        setExpenses(data.expenses || []);
+        setMonthlyIncome(data.settings?.monthly_income || 0);
+        setSavingsGoal(data.settings?.savings_goal || 0);
+      } catch (err) {
+        console.error("Fetch data error:", err);
       }
     })();
     return () => { cancelled = true; };
-  }, [user]);
+  }, [authToken]);
 
-  const saveCloudMeta = async () => {
-    const client = await getSupabase();
-    if (!client || !user) return false;
-    setSyncStatus("saving");
-    const db = client.schema(SUPABASE_SCHEMA);
+  const signInOrUp = async (e) => {
+    e.preventDefault();
+    setAuthMsg("");
+    const endpoint = authMode === "signin" ? `${API_URL}/login` : `${API_URL}/signup`;
 
     try {
-      const { error: setErr } = await saveSettingsRow(db, user.id, { monthly_income: monthlyIncome, savings_goal: savingsGoal, opening_balance: openingBalance });
-      if (setErr) { failSync(setErr); return false; }
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authEmail, password: authPassword })
+      });
+      const data = await res.json();
 
-      await db.from("bills").delete().eq("user_id", user.id);
-      const billPayload = bills.map((b) => ({ user_id: user.id, title: b.title, amount: b.amount, due_date: b.dueDate, paid: !!b.paid }));
-      if (billPayload.length > 0) { const { error: billErr } = await db.from("bills").insert(billPayload); if (billErr) { failSync(billErr); return false; } }
-
-      await db.from("section_items").delete().eq("user_id", user.id);
-      await db.from("sections").delete().eq("user_id", user.id);
-      for (const section of sections) {
-        const { data: secData, error: secErr } = await db.from("sections").insert({ user_id: user.id, title: section.title }).select("id").single();
-        if (secErr || !secData) { failSync(secErr || new Error("Could not create section")); return false; }
-        if (section.items.length > 0) {
-          const itemPayload = section.items.map((item, idx) => ({ section_id: secData.id, user_id: user.id, name: item.name, amount: Number(item.amount) || 0, note: item.note || "", position: idx }));
-          await db.from("section_items").insert(itemPayload);
-        }
+      if (!res.ok) {
+        setAuthMsg(data.error || "Authentication failed");
+        return;
       }
-      setSyncStatus("synced");
-      return true;
-    } catch (err) {
-      failSync(err);
-      return false;
+
+      if (authMode === "signup") {
+        setAuthMsg("Account created successfully! Please sign in.");
+        setAuthMode("signin");
+      } else {
+        localStorage.setItem("cf_jwt", data.token);
+        localStorage.setItem("cf_user", JSON.stringify(data.user));
+        setAuthToken(data.token);
+        setUser(data.user);
+        resetToBlank();
+      }
+    } catch {
+      setAuthMsg("Network error connecting to Cloudflare backend.");
     }
   };
 
-  useEffect(() => {
-    if (!user || !cloudLoaded) return;
-    const t = setTimeout(() => { saveCloudMeta(); }, 800);
-    return () => clearTimeout(t);
-  }, [bills, sections, monthlyIncome, savingsGoal, openingBalance, user, cloudLoaded]);
-
-  const syncNow = async () => {
-    const client = await getSupabase();
-    if (!client) { alert("Supabase is not set up yet."); return; }
-    if (!user) { alert("Sign in first."); return; }
-    setSyncStatus("syncing");
-    const db = client.schema(SUPABASE_SCHEMA);
-
-    try {
-      await db.from("expenses").delete().eq("user_id", user.id);
-      const expPayload = expenses.map((e) => ({ user_id: user.id, title: e.title, amount: e.amount, category: e.category, date: e.date, frequency: e.frequency || "One-time" }));
-      if (expPayload.length > 0) {
-        const { error: expErr } = await db.from("expenses").insert(expPayload);
-        if (expErr) { failSync(expErr); return; }
-      }
-      await saveCloudMeta();
-      setSyncStatus("synced");
-    } catch (err) {
-      failSync(err);
-    }
-  };
-
-  const syncInsert = async (expense) => {
-    const client = await getSupabase(); if (!client || !user) return;
-    await client.schema(SUPABASE_SCHEMA).from("expenses").insert({ user_id: user.id, title: expense.title, amount: expense.amount, category: expense.category, date: expense.date, frequency: expense.frequency || "One-time" });
-  };
-  const syncDelete = async (id) => {
-    const client = await getSupabase(); if (!client || !user) return;
-    await client.schema(SUPABASE_SCHEMA).from("expenses").delete().eq("id", id).eq("user_id", user.id);
-  };
-  const syncUpdate = async (expense) => {
-    const client = await getSupabase(); if (!client || !user) return;
-    await client.schema(SUPABASE_SCHEMA).from("expenses").update({ title: expense.title, amount: expense.amount, category: expense.category, date: expense.date, frequency: expense.frequency || "One-time" }).eq("id", expense.id).eq("user_id", user.id);
+  const signOut = () => {
+    localStorage.removeItem("cf_jwt");
+    localStorage.removeItem("cf_user");
+    setAuthToken(null);
+    setUser(null);
+    resetToBlank();
+    setShowSettings(false);
   };
 
   const now = new Date();
@@ -613,30 +202,14 @@ export default function App() {
   const dailyAvg = daysPassed > 0 ? total / daysPassed : total;
   const projected = Math.round(dailyAvg * daysInMonth);
 
-  const byCategory = useMemo(() => {
-    const map = {};
-    monthExpenses.forEach((e) => { map[e.category] = (map[e.category] || 0) + e.amount; });
-    return Object.entries(map).map(([name, value]) => ({ name, value: Number(value.toFixed(2)) }));
-  }, [monthExpenses]);
-
-  const topCategory = byCategory.length ? [...byCategory].sort((a, b) => b.value - a.value)[0] : null;
-  const biggest = monthExpenses.length ? [...monthExpenses].sort((a, b) => b.amount - a.amount)[0] : null;
-  const overBudget = categories.filter((c) => (byCategory.find((x) => x.name === c)?.value || 0) > budgets[c]);
-  const titleCounts = {};
-  expenses.forEach((e) => { titleCounts[e.title] = (titleCounts[e.title] || 0) + 1; });
-
   const filtered = useMemo(() => {
     let list = monthExpenses.filter((e) => {
       const okSearch = e.title.toLowerCase().includes(search.toLowerCase());
       const okFilter = filter === "All" || e.category === filter;
       return okSearch && okFilter;
     });
-    if (sortBy === "newest") list = [...list].sort((a, b) => b.date.localeCompare(a.date));
-    if (sortBy === "oldest") list = [...list].sort((a, b) => a.date.localeCompare(b.date));
-    if (sortBy === "highest") list = [...list].sort((a, b) => b.amount - a.amount);
-    if (sortBy === "lowest") list = [...list].sort((a, b) => a.amount - b.amount);
     return list;
-  }, [monthExpenses, search, filter, sortBy]);
+  }, [monthExpenses, search, filter]);
 
   const isFixedExpense = (e) => e.frequency && e.frequency !== "One-time";
   const fixedList = filtered.filter(isFixedExpense);
@@ -644,81 +217,25 @@ export default function App() {
   const fixedTotal = fixedList.reduce((s, e) => s + Number(e.amount || 0), 0);
   const flexTotal = flexList.reduce((s, e) => s + Number(e.amount || 0), 0);
 
-  // Animated numbers for the dashboard open: every headline figure counts up
-  // from 0 (or its previous value) whenever it changes.
   const animatedIncome = useCountUp(monthlyIncome);
   const animatedTotal = useCountUp(total);
   const animatedBalance = useCountUp(balance);
   const animatedSavings = useCountUp(savings);
-  const animatedFixed = useCountUp(fixedTotal);
-  const animatedFlex = useCountUp(flexTotal);
   const spentPct = monthlyIncome > 0 ? Math.min(total / monthlyIncome, 1) : 0;
   const animatedSpentPct = useCountUp(spentPct);
-
-  const monthlyData = [
-    { month: "Jun", spent: 0, income: monthlyIncome },
-    { month: "Jul", spent: 0, income: monthlyIncome },
-    { month: "Aug", spent: 0, income: monthlyIncome },
-    { month: "Sep", spent: 0, income: monthlyIncome },
-    { month: "Oct", spent: 0, income: monthlyIncome },
-    { month: "Nov", spent: Number(total.toFixed(2)), income: monthlyIncome },
-  ];
-
-  const unpaidBills = bills.filter((b) => !b.paid);
-  const unpaidTotal = unpaidBills.reduce((s, b) => s + Number(b.amount || 0), 0);
-
-  const addBill = (e) => {
-    e.preventDefault();
-    const num = Number(billAmount);
-    if (!billTitle.trim() || !num || num <= 0 || !billDue) return;
-    setBills((prev) => [...prev, { id: Date.now(), title: billTitle.trim(), amount: num, dueDate: billDue, paid: false }]);
-    logHistory("Bill added", `${billTitle.trim()} $${num}`);
-    setBillTitle(""); setBillAmount("");
-  };
-  const toggleBill = (id) => setBills((prev) => prev.map((b) => (b.id === id ? { ...b, paid: !b.paid } : b)));
-  const deleteBill = (id) => setBills((prev) => prev.filter((b) => b.id !== id));
-
-  const addDueBillsAsExpenses = () => {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const due = bills.filter((b) => !b.paid && b.dueDate <= todayStr);
-    if (due.length === 0) { setImportMsg("No unpaid bills are due yet."); return; }
-    const newExps = due.map((b) => ({ id: Date.now() + Math.random(), title: b.title, amount: Number(b.amount), category: "Housing", date: todayStr, frequency: "One-time" }));
-    setExpenses((prev) => [...newExps, ...prev]);
-    newExps.forEach((e) => syncInsert(e));
-    setBills((prev) => prev.map((b) => (due.find((d) => d.id === b.id) ? { ...b, paid: true } : b)));
-    logHistory("Bills added as expenses", `${due.length} bills, $${due.reduce((s, b) => s + Number(b.amount), 0).toFixed(2)}`);
-    setImportMsg(`Added ${due.length} due bills as expenses and marked them paid.`);
-  };
-
-  const heatMonth = new Date().toISOString().slice(0, 7);
-  const [heatYear, heatMon] = heatMonth.split("-").map(Number);
-  const heatDays = new Date(heatYear, heatMon, 0).getDate();
-  const heatFirst = new Date(heatYear, heatMon - 1, 1).getDay();
-  const heatTotals = {};
-  expenses.filter((e) => e.date.startsWith(heatMonth)).forEach((e) => {
-    const day = Number(e.date.slice(8, 10));
-    heatTotals[day] = (heatTotals[day] || 0) + Number(e.amount);
-  });
-  const heatLevel = (amt) => (amt <= 0 ? 0 : amt < 20 ? 1 : amt < 60 ? 2 : amt < 150 ? 3 : 4);
 
   const doAddExpense = (cleanTitle, num, cat, d, freq) => {
     const newExp = { id: Date.now(), title: cleanTitle, amount: num, category: cat, date: d, frequency: freq || "One-time" };
     setExpenses((prev) => [newExp, ...prev]);
-    syncInsert(newExp);
-    logHistory("Expense added", `${cleanTitle} $${num}`);
   };
 
-  const addExpense = (e, force = false) => {
+  const addExpense = (e) => {
     e.preventDefault();
     const cleanTitle = title.trim();
     const num = Number(amount);
     if (!cleanTitle) { setError("Add a title first."); return; }
     if (!num || num <= 0) { setError("Amount must be more than $0."); return; }
-    if (num > 100000) { setError("That amount looks like a typo, max is $100,000."); return; }
-    if (isMonthClosed(date.slice(0, 7))) { setError(`That month is closed and locked.`); return; }
-    const dup = expenses.find((x) => x.title.toLowerCase() === cleanTitle.toLowerCase() && x.amount === num && x.date === date);
-    if (dup && !force) { setPendingDuplicate({ title: cleanTitle, amount: num, date }); setError(`Duplicate of "${dup.title}" $${dup.amount}.`); return; }
-    setError(""); setPendingDuplicate(null);
+    setError("");
     doAddExpense(cleanTitle, num, category, date, frequency);
     setTitle(""); setAmount(""); setFrequency("One-time");
   };
@@ -729,7 +246,6 @@ export default function App() {
     const t = quickTitle.trim() || "Quick expense";
     if (!num || num <= 0) { setError("Quick add needs an amount over $0."); return; }
     const d = new Date().toISOString().slice(0, 10);
-    if (isMonthClosed(d.slice(0, 7))) { setError("This month is closed."); return; }
     doAddExpense(t, num, quickCategory, d);
     setQuickAmount(""); setQuickTitle("");
   };
@@ -737,10 +253,7 @@ export default function App() {
   const deleteExpense = (id) => {
     const found = expenses.find((e) => e.id === id);
     if (!found) return;
-    if (isMonthClosed(found.date.slice(0, 7))) { setError("That month is closed."); return; }
     setExpenses((prev) => prev.filter((e) => e.id !== id));
-    syncDelete(id);
-    logHistory("Expense deleted", `${found.title} $${found.amount}`);
     setLastDeleted(found);
   };
 
@@ -748,21 +261,6 @@ export default function App() {
     if (!lastDeleted) return;
     setExpenses((prev) => [lastDeleted, ...prev]);
     setLastDeleted(null);
-  };
-
-  const startEdit = (e) => {
-    if (isMonthClosed(e.date.slice(0, 7))) { setError("That month is closed."); return; }
-    setEditingId(e.id); setEditTitle(e.title); setEditAmount(String(e.amount)); setEditCategory(e.category); setEditDate(e.date); setEditFrequency(e.frequency || "One-time");
-  };
-
-  const saveEdit = () => {
-    const num = Number(editAmount);
-    if (!editTitle.trim() || !num || num <= 0) { setError("Edit needs a title and amount."); return; }
-    const updated = { id: editingId, title: editTitle.trim(), amount: num, category: editCategory, date: editDate, frequency: editFrequency };
-    setExpenses((prev) => prev.map((x) => (x.id === editingId ? updated : x)));
-    syncUpdate(updated);
-    logHistory("Expense edited", `${updated.title} $${updated.amount}`);
-    setEditingId(null); setError("");
   };
 
   const exportCSV = () => {
@@ -774,382 +272,69 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const parseCSVLine = (line) => {
-    const m = line.match(/"([^"]*)"|[^,]+/g) || [];
-    return m.map((s) => s.replace(/^"|"$/g, "").trim());
-  };
-
-  const importCSV = async (ev) => {
-    const file = ev.target.files && ev.target.files[0];
-    if (!file) return;
-    const text = await file.text();
-    const lines = text.split(/\r?\n/).filter(Boolean);
-    const rows = [];
-    lines.forEach((line) => {
-      if (line.toLowerCase().startsWith("title,")) return;
-      const parts = parseCSVLine(line);
-      if (parts.length < 4) return;
-      const amt = Number(parts[1]);
-      if (!amt || amt <= 0) return;
-      rows.push({ id: Date.now() + Math.random(), title: parts[0] || "Imported", amount: amt, category: categories.includes(parts[2]) ? parts[2] : "Other", date: parts[3] || new Date().toISOString().slice(0, 10), frequency: frequencies.includes(parts[4]) ? parts[4] : "One-time" });
-    });
-    if (rows.length) { setExpenses((prev) => [...rows, ...prev]); rows.forEach((r) => syncInsert(r)); }
-    setImportMsg(rows.length ? `Imported ${rows.length} expenses.` : "No valid rows found.");
-    ev.target.value = "";
-  };
-
-  const backupJSON = () => {
-    const data = { exportedAt: new Date().toISOString(), monthlyIncome, savingsGoal, openingBalance, expenses, sections, bills, closedMonths, currency };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "money-dashboard-backup.json"; a.click();
-    URL.revokeObjectURL(url); setImportMsg("Backup downloaded.");
-  };
-
-  const restoreJSON = async (ev) => {
-    const file = ev.target.files && ev.target.files[0];
-    if (!file) return;
-    try {
-      const data = JSON.parse(await file.text());
-      if (Array.isArray(data.expenses)) {
-        setExpenses(data.expenses.map((e) => ({ ...e, frequency: e.frequency || "One-time" })));
-        const client = await getSupabase();
-        if (client && user) {
-          const db = client.schema(SUPABASE_SCHEMA);
-          await db.from("expenses").delete().eq("user_id", user.id);
-          const payload = data.expenses.map((e) => ({ user_id: user.id, title: e.title, amount: e.amount, category: e.category || "Other", date: e.date, frequency: e.frequency || "One-time" }));
-          if (payload.length > 0) await db.from("expenses").insert(payload);
-        }
-      }
-      if (Array.isArray(data.sections)) setSections(data.sections);
-      if (Array.isArray(data.bills)) setBills(data.bills);
-      if (data.monthlyIncome) setMonthlyIncome(Number(data.monthlyIncome));
-      if (data.savingsGoal) setSavingsGoal(Number(data.savingsGoal));
-      if (data.openingBalance) setOpeningBalance(Number(data.openingBalance));
-      if (data.currency) setCurrency(data.currency);
-      setImportMsg("Backup restored.");
-    } catch { setImportMsg("That backup file could not be read."); }
-    ev.target.value = "";
-  };
-
-  const resetAll = async () => {
-    if (!window.confirm("Start blank again? This clears all your real expenses, bills and sections in Supabase.")) return;
-    setExpenses([]); setBills([]); setSections([]); setClosedMonths([]); setLastDeleted(null);
-    const client = await getSupabase();
-    if (client && user) {
-      const db = client.schema(SUPABASE_SCHEMA);
-      await db.from("expenses").delete().eq("user_id", user.id);
-      await db.from("bills").delete().eq("user_id", user.id);
-      await db.from("section_items").delete().eq("user_id", user.id);
-      await db.from("sections").delete().eq("user_id", user.id);
-    }
-    logHistory("Reset", "Started blank again");
-  };
-
-  const closeMonth = () => {
-    if (monthFilter === "All") { setError("Pick a calculation month first."); return; }
-    if (!closedMonths.includes(monthFilter)) { setClosedMonths((prev) => [...prev, monthFilter]); logHistory("Month done", `${monthFilter} locked`); }
-  };
-
-  const reopenMonth = () => {
-    if (monthFilter === "All") return;
-    setClosedMonths((prev) => prev.filter((m) => m !== monthFilter));
-    logHistory("Month reopened", `${monthFilter} reopened`);
-  };
-
-  const sectionTotal = (section) => section.items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-
-  const addSection = () => {
-    const name = newSectionTitle.trim();
-    if (!name) return;
-    setSections((prev) => [...prev, {
-      id: Date.now(), title: name, items: [
-        { id: Date.now() + 1, name: "Person 1", amount: 0, note: "" },
-        { id: Date.now() + 2, name: "Person 2", amount: 0, note: "" },
-        { id: Date.now() + 3, name: "Person 3", amount: 0, note: "" },
-      ]
-    }]);
-    setNewSectionTitle("");
-  };
-
-  const updateSectionTitle = (sectionId, newTitle) => setSections((prev) => prev.map((s) => (s.id === sectionId ? { ...s, title: newTitle } : s)));
-
-  const updateItem = (sectionId, itemId, field, value) => {
-    setSections((prev) => prev.map((s) => s.id !== sectionId ? s : { ...s, items: s.items.map((item) => item.id === itemId ? { ...item, [field]: field === "amount" ? Number(value) || 0 : value } : item) }));
-  };
-
-  const addItemToSection = (sectionId) => setSections((prev) => prev.map((s) => s.id === sectionId ? { ...s, items: [...s.items, { id: Date.now(), name: `Person ${s.items.length + 1}`, amount: 0, note: "" }] } : s));
-
-  const deleteItemFromSection = (sectionId, itemId) => setSections((prev) => prev.map((s) => (s.id === sectionId ? { ...s, items: s.items.filter((i) => i.id !== itemId) } : s)));
-
-  const deleteSection = (sectionId) => {
-    if (!window.confirm("Delete this whole section?")) return;
-    setSections((prev) => prev.filter((s) => s.id !== sectionId));
-  };
-
-  const addSectionTotalToMain = (section) => {
-    const stotal = sectionTotal(section);
-    if (stotal <= 0) return;
-    const newExp = { id: Date.now(), title: `${section.title} - Total (${section.items.length} persons)`, amount: Number(stotal.toFixed(2)), category: "Transport", date: new Date().toISOString().slice(0, 10), frequency: "One-time" };
-    setExpenses((prev) => [newExp, ...prev]);
-    syncInsert(newExp);
-  };
-  const sectionTotals = sections.map((s) => ({ title: s.title, total: sectionTotal(s) }));
-
   const currencySymbol = CURRENCIES.find(c => c.code === currency)?.symbol || "$";
 
-  // Settings Handlers
-  const handleUpdateEmail = async (e) => {
-    e.preventDefault();
-    setSettingsMsg(""); setSettingsError("");
-
-    if (!newEmail || newEmail === user.email) {
-      setSettingsError("Enter a new valid email.");
-      return;
-    }
-
-    const client = await getSupabase();
-    if (!client) return;
-
-    const { error } = await client.auth.updateUser({ email: newEmail });
-
-    if (error) {
-      setSettingsError(error.message);
-      return;
-    }
-
-    setPendingConfirmation("email");
-    setSettingsMsg(`Confirmation link sent to ${newEmail}. Please check your inbox and click the link to finalize the change.`);
-    setNewEmail("");
-  };
-
-  const handleUpdatePassword = async (e) => {
-    e.preventDefault();
-    setSettingsMsg(""); setSettingsError("");
-
-    if (!newPassword || newPassword.length < 6) {
-      setSettingsError("Password must be at least 6 characters.");
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      setSettingsError("Passwords do not match.");
-      return;
-    }
-
-    const client = await getSupabase();
-    if (!client) return;
-
-    const { error } = await client.auth.updateUser({ password: newPassword });
-
-    if (error) {
-      setSettingsError(error.message);
-      return;
-    }
-
-    setPendingConfirmation("password");
-    setSettingsMsg(`A confirmation link has been sent to ${user.email}. Please check your inbox and click the link to finalize the password change.`);
-    setNewPassword("");
-    setConfirmPassword("");
-  };
-
-  const handleDeleteAccount = async () => {
-    const confirm1 = window.confirm("Are you absolutely sure you want to delete your account? This will permanently delete all your expenses, bills, and settings. This cannot be undone.");
-    if (!confirm1) return;
-    const confirm2 = window.prompt("Type 'DELETE' to confirm:");
-    if (confirm2 !== "DELETE") return;
-
-    const client = await getSupabase();
-    if (!client || !user) return;
-
-    const db = client.schema(SUPABASE_SCHEMA);
-    await db.from("expenses").delete().eq("user_id", user.id);
-    await db.from("bills").delete().eq("user_id", user.id);
-    await db.from("section_items").delete().eq("user_id", user.id);
-    await db.from("sections").delete().eq("user_id", user.id);
-    await db.from("settings").delete().eq("user_id", user.id);
-
-    await client.auth.signOut();
-    resetToBlank();
-    setUser(null);
-    setShowSettings(false);
-    alert("Account data deleted. Signed out.");
-  };
-
   // Auth Page Renderer
-  if (!user || route === "#forgot-password" || route === "#reset-password") {
+  if (!user) {
     return (
       <div className={`app login-page ${darkMode ? "dark" : ""}`} style={{ zIndex: 10 }}>
         <ThreeBackground dark={darkMode} />
         <div className="login-top">
           <div className="login-logo">
             <span className="login-logo-icon"><Wallet size={20} /></span>
-            Money Dashboard
+            Money Dashboard (Cloudflare)
           </div>
           <button className="small-ghost-btn" onClick={toggleTheme}>{darkMode ? <Sun size={15} /> : <Moon size={15} />} {darkMode ? "Light mode" : "Dark mode"}</button>
         </div>
 
         <div className="login-wrap" style={{ gridTemplateColumns: "1fr", maxWidth: 420 }}>
           <div className="login-card">
-
-            {/* 1. FORGOT PASSWORD PAGE */}
-            {route === "#forgot-password" ? (
-              <>
-                <h2>Reset your password</h2>
-                <p>Enter your email address and we'll send you a link to reset your password.</p>
-                <form onSubmit={handleForgotPassword} className="login-form">
-                  <div className="login-field">
-                    <label htmlFor="forgot-email">Email</label>
-                    <input
-                      id="forgot-email"
-                      type="email"
-                      value={authEmail}
-                      onChange={(e) => setAuthEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      required
-                    />
-                  </div>
-                  {authMsg && <div className={authMsg.includes("sent") ? "alert" : "form-error"} style={authMsg.includes("sent") ? { background: "rgba(94, 234, 212, 0.15)", color: "var(--good)" } : {}}>{authMsg}</div>}
-                  <button type="submit" className="login-submit"><Mail size={16} /> Send Reset Link</button>
-                </form>
-                <button type="button" className="login-toggle" onClick={() => { window.location.hash = "#login"; setAuthMsg(""); }} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                  <ArrowLeft size={14} /> Back to sign in
-                </button>
-              </>
-            ) : route === "#reset-password" ? (
-
-              /* 2. RESET PASSWORD PAGE (Where the email link lands) */
-              <>
-                <h2>Create new password</h2>
-                <p>Enter your new password below.</p>
-                <form onSubmit={handleResetPasswordSubmit} className="login-form">
-                  <div className="login-field">
-                    <label htmlFor="new-password">New Password</label>
-                    <div style={{ position: "relative" }}>
-                      <input
-                        id="new-password"
-                        type={showAuthPassword ? "text" : "password"}
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder="New password"
-                        required
-                      />
-                      <button type="button" className="small-ghost-btn" onClick={() => setShowAuthPassword(!showAuthPassword)} style={{ position: "absolute", right: 8, top: 8, padding: 6 }}>
-                        {showAuthPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="login-field">
-                    <label htmlFor="confirm-password">Confirm Password</label>
-                    <input
-                      id="confirm-password"
-                      type={showAuthPassword ? "text" : "password"}
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Confirm new password"
-                      required
-                    />
-                  </div>
-                  {authMsg && <div className="form-error">{authMsg}</div>}
-                  <button type="submit" className="login-submit"><CheckCircle size={16} /> Update Password</button>
-                </form>
-              </>
-            ) : (
-
-              /* 3. MAIN LOGIN / SIGNUP PAGE */
-              <>
-                {authStep === "verify" ? (
-                  <>
-                    <h2>Check your email</h2>
-                    <p>We sent a 6-digit code to <strong>{authEmail}</strong>. Enter it below to verify your email and finish signing up.</p>
-                    <form onSubmit={verifySignupCode} className="login-form">
-                      <div className="login-field">
-                        <label htmlFor="verify-code">6-digit code</label>
-                        <input id="verify-code" type="text" inputMode="numeric" maxLength={6} value={verifyCode} onChange={(e) => setVerifyCode(e.target.value.replace(/[^0-9]/g, ""))} placeholder="123456" required />
-                      </div>
-                      {authMsg && <div className="form-error">{authMsg}</div>}
-                      <button type="submit" className="login-submit"><ShieldCheck size={16} /> Verify code</button>
-                    </form>
-                    <button type="button" className="login-toggle" onClick={resendSignupCode}>Didn't get it? Send a new code</button>
-                    <button type="button" className="login-toggle" onClick={() => { setAuthStep("form"); setAuthMode("signin"); setAuthMsg(""); }}>Back to sign in</button>
-                  </>
-                ) : (
-                  <>
-                    <h2>{authMode === "signup" ? "Create your account" : "Welcome back"}</h2>
-                    <p>{authMode === "signup" ? "Sign up once, then we will email you a 6-digit code to verify your email." : "Sign in to see your expenses and add new ones."}</p>
-                    {!supabaseUrl && <div className="form-error">Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file.</div>}
-                    <form onSubmit={signInOrUp} className="login-form">
-                      <div className="login-field">
-                        <label htmlFor="login-email">Email</label>
-                        <input id="login-email" type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="you@example.com" required />
-                      </div>
-                      <div className="login-field">
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <label htmlFor="login-password">Password</label>
-                          {authMode === "signin" && (
-                            <button type="button" className="small-ghost-btn" onClick={() => { window.location.hash = "#forgot-password"; setAuthMsg(""); }} style={{ background: "none", border: "none", padding: 0, fontSize: 12, color: "var(--cyan)", boxShadow: "none" }}>
-                              Forgot password?
-                            </button>
-                          )}
-                        </div>
-                        <div style={{ position: "relative" }}>
-                          <input
-                            id="login-password"
-                            type={showAuthPassword ? "text" : "password"}
-                            value={authPassword}
-                            onChange={(e) => setAuthPassword(e.target.value)}
-                            placeholder="Your password"
-                            required
-                          />
-                          <button type="button" className="small-ghost-btn" onClick={() => setShowAuthPassword(!showAuthPassword)} style={{ position: "absolute", right: 8, top: 8, padding: 6, background: "none", border: "none" }}>
-                            {showAuthPassword ? <EyeOff size={14} color="var(--ink-dim)" /> : <Eye size={14} color="var(--ink-dim)" />}
-                          </button>
-                        </div>
-                      </div>
-                      {authMsg && <div className="form-error">{authMsg}</div>}
-                      <button type="submit" className="login-submit"><LogIn size={16} /> {authMode === "signup" ? "Sign up" : "Sign in"}</button>
-                    </form>
-                    <button type="button" className="login-toggle" onClick={() => setAuthMode(authMode === "signup" ? "signin" : "signup")}>{authMode === "signup" ? "Have an account? Sign in" : "No account? Sign up"}</button>
-                  </>
-                )}
-              </>
-            )}
-
-            <p className="login-note"><Lock size={13} /> Your data lives in Supabase only, under your account.</p>
+            <h2>{authMode === "signup" ? "Create your account" : "Welcome back"}</h2>
+            <p>{authMode === "signup" ? "Sign up to store your data securely on Cloudflare." : "Sign in to access your expenses."}</p>
+            <form onSubmit={signInOrUp} className="login-form">
+              <div className="login-field">
+                <label htmlFor="login-email">Email</label>
+                <input id="login-email" type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="you@example.com" required />
+              </div>
+              <div className="login-field">
+                <label htmlFor="login-password">Password</label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    id="login-password"
+                    type={showAuthPassword ? "text" : "password"}
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    placeholder="Your password"
+                    required
+                  />
+                  <button type="button" className="small-ghost-btn" onClick={() => setShowAuthPassword(!showAuthPassword)} style={{ position: "absolute", right: 8, top: 8, padding: 6, background: "none", border: "none" }}>
+                    {showAuthPassword ? <EyeOff size={14} color="var(--ink-dim)" /> : <Eye size={14} color="var(--ink-dim)" />}
+                  </button>
+                </div>
+              </div>
+              {authMsg && <div className="form-error">{authMsg}</div>}
+              <button type="submit" className="login-submit"><LogIn size={16} /> {authMode === "signup" ? "Sign up" : "Sign in"}</button>
+            </form>
+            <button type="button" className="login-toggle" onClick={() => setAuthMode(authMode === "signup" ? "signin" : "signup")}>
+              {authMode === "signup" ? "Have an account? Sign in" : "No account? Sign up"}
+            </button>
+            <p className="login-note"><Lock size={13} /> Powered by Cloudflare Workers & D1 Database.</p>
           </div>
         </div>
-        <div className="login-foot">Money Dashboard - a monthly expense tracker</div>
       </div>
     );
   }
 
   const expenseRow = (e) => (
     <div key={e.id} className="row" style={{ alignItems: "flex-start" }}>
-      {editingId === e.id ? (
-        <div className="edit-row">
-          <input value={editTitle} onChange={(ev) => setEditTitle(ev.target.value)} placeholder="Title" />
-          <input type="number" step="0.01" value={editAmount} onChange={(ev) => setEditAmount(ev.target.value)} placeholder="Amount" />
-          <select value={editCategory} onChange={(ev) => setEditCategory(ev.target.value)}>{categories.map((c) => <option key={c}>{c}</option>)}</select>
-          <select value={editFrequency} onChange={(ev) => setEditFrequency(ev.target.value)}>{frequencies.map((f) => <option key={f}>{f}</option>)}</select>
-          <input type="date" value={editDate} onChange={(ev) => setEditDate(ev.target.value)} />
-          <div className="edit-actions">
-            <button onClick={saveEdit}>Save</button>
-            <button className="small-ghost-btn" onClick={() => setEditingId(null)}>Cancel</button>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div>
-            <strong>{e.title} {titleCounts[e.title] > 1 && <span className="cat-pill">Recurring</span>}</strong>
-            <span><span className="cat-pill">{e.category}</span>{e.frequency && e.frequency !== "One-time" && <span className="cat-pill">{e.frequency}</span>}{e.date}</span>
-          </div>
-          <div className="row-right">
-            <strong>{currencySymbol}{e.amount.toFixed(2)}</strong>
-            <button className="edit-btn" onClick={() => startEdit(e)}><Pencil size={15} /></button>
-            <button onClick={() => deleteExpense(e.id)}><Trash2 size={16} /></button>
-          </div>
-        </>
-      )}
+      <div>
+        <strong>{e.title}</strong>
+        <span><span className="cat-pill">{e.category}</span>{e.frequency && e.frequency !== "One-time" && <span className="cat-pill">{e.frequency}</span>}{e.date}</span>
+      </div>
+      <div className="row-right">
+        <strong>{currencySymbol}{e.amount.toFixed(2)}</strong>
+        <button onClick={() => deleteExpense(e.id)}><Trash2 size={16} /></button>
+      </div>
     </div>
   );
 
@@ -1157,12 +342,11 @@ export default function App() {
     return (
       <div className={`app ${darkMode ? "dark" : ""}`} style={{ position: "relative", zIndex: 10 }}>
         <ThreeBackground dark={darkMode} />
-
         <header>
           <div className="header-top">
             <div>
               <h1>Settings</h1>
-              <p>Manage your account, security, and preferences.</p>
+              <p>Manage your preferences.</p>
             </div>
             <button className="white-btn" onClick={() => setShowSettings(false)}>
               <X size={15} /> Back to Dashboard
@@ -1171,100 +355,8 @@ export default function App() {
         </header>
 
         <div className="settings-page-grid">
-          {/* Account Settings */}
-          <div className="card">
-            <h3><ShieldCheck size={18} /> Account Security</h3>
-
-            {settingsMsg && <div className="alert" style={{ background: "rgba(94, 234, 212, 0.15)", color: "var(--good)", borderColor: "rgba(94, 234, 212, 0.3)" }}>{settingsMsg}</div>}
-            {settingsError && <div className="form-error">{settingsError}</div>}
-
-            {pendingConfirmation === "email" && (
-              <div className="alert" style={{ background: "rgba(255, 209, 102, 0.15)", color: "var(--warn)", borderColor: "rgba(255, 209, 102, 0.3)" }}>
-                <AlertTriangle size={16} /> Please confirm the new email address to finalize the change.
-              </div>
-            )}
-            {pendingConfirmation === "password" && (
-              <div className="alert" style={{ background: "rgba(255, 209, 102, 0.15)", color: "var(--warn)", borderColor: "rgba(255, 209, 102, 0.3)" }}>
-                <AlertTriangle size={16} /> Please confirm the password change via the link sent to your email.
-              </div>
-            )}
-
-            <form onSubmit={handleUpdateEmail} className="form" style={{ marginBottom: 24 }}>
-              <div className="field">
-                <label>Change Email</label>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder={user.email} />
-                  <button type="submit"><Mail size={14} /> Update</button>
-                </div>
-              </div>
-            </form>
-
-            <form onSubmit={handleUpdatePassword} className="form">
-              <div className="field">
-                <label>Change Password</label>
-                <div style={{ display: "flex", gap: 8, flexDirection: "column" }}>
-                  <div style={{ position: "relative" }}>
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="New password"
-                    />
-                    <button type="button" className="small-ghost-btn" onClick={() => setShowPassword(!showPassword)} style={{ position: "absolute", right: 8, top: 8, padding: 6 }}>
-                      {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Confirm new password"
-                  />
-                  <button type="submit"><Key size={14} /> Update Password</button>
-                </div>
-              </div>
-            </form>
-          </div>
-
-          {/* Preferences */}
           <div className="card">
             <h3><Settings size={18} /> Preferences</h3>
-
-            <div className="field" style={{ marginBottom: 16 }}>
-              <label>Appearance</label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                <button
-                  type="button"
-                  className={themeMode === "auto" ? "pill active" : "white-btn"}
-                  onClick={() => setThemeMode("auto")}
-                  style={{ justifyContent: "center" }}
-                >
-                  Auto
-                </button>
-                <button
-                  type="button"
-                  className={themeMode === "light" ? "pill active" : "white-btn"}
-                  onClick={() => setThemeMode("light")}
-                  style={{ justifyContent: "center" }}
-                >
-                  <Sun size={15} /> Light
-                </button>
-                <button
-                  type="button"
-                  className={themeMode === "dark" ? "pill active" : "white-btn"}
-                  onClick={() => setThemeMode("dark")}
-                  style={{ justifyContent: "center" }}
-                >
-                  <Moon size={15} /> Dark
-                </button>
-              </div>
-              <small style={{ color: "var(--ink-dim)", fontSize: 12 }}>
-                {themeMode === "auto"
-                  ? "Automatically switches between Light (morning/afternoon) and Dark (evening/night) using your local solar time."
-                  : `Manual override active (${themeMode === "dark" ? "Dark" : "Light"} mode).`}
-              </small>
-            </div>
-
             <div className="field">
               <label>Currency Display</label>
               <div style={{ position: "relative" }}>
@@ -1275,11 +367,7 @@ export default function App() {
                 {showCurrencyDropdown && (
                   <div className="currency-dropdown">
                     {CURRENCIES.map((c) => (
-                      <button
-                        key={c.code}
-                        className="currency-option"
-                        onClick={() => { setCurrency(c.code); setShowCurrencyDropdown(false); }}
-                      >
+                      <button key={c.code} className="currency-option" onClick={() => { setCurrency(c.code); setShowCurrencyDropdown(false); }}>
                         <span>{c.symbol} {c.code}</span>
                         <small>{c.label}</small>
                       </button>
@@ -1288,17 +376,6 @@ export default function App() {
                 )}
               </div>
             </div>
-          </div>
-
-          {/* Danger Zone */}
-          <div className="card" style={{ borderColor: "var(--stroke-strong)" }}>
-            <h3 style={{ color: "var(--bad)" }}><AlertTriangle size={18} /> Danger Zone</h3>
-            <p style={{ color: "var(--ink-dim)", fontSize: 14, marginBottom: 16 }}>
-              Once you delete your data, there is no going back. Please be certain.
-            </p>
-            <button onClick={handleDeleteAccount} style={{ background: "var(--bad)", width: "100%" }}>
-              Delete My Account & Data
-            </button>
           </div>
         </div>
       </div>
@@ -1312,61 +389,31 @@ export default function App() {
         <div className="header-top">
           <div>
             <h1>Money Dashboard</h1>
-            <p>{expenses.length === 0 ? `Welcome, ${user.email}` : `Welcome back, ${user.email} - ${daysLeft} days left - Projected: ${currencySymbol}${projected}`}</p>
-            <p className="live-date">{liveNow.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} - {liveNow.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</p>
+            <p>Welcome back, {user.email} - {daysLeft} days left - Projected: {currencySymbol}{projected}</p>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <button className="white-btn" onClick={() => setShowSettings(true)}>
-              <Settings size={15} /> Settings
-            </button>
-            <div className="badge">Signed in: {user.email} - Supabase: {syncStatus}</div>
+            <button className="white-btn" onClick={() => setShowSettings(true)}><Settings size={15} /> Settings</button>
+            <button className="white-btn" onClick={toggleTheme}>{darkMode ? <Sun size={15} /> : <Moon size={15} />} {darkMode ? "Light mode" : "Dark mode"}</button>
+            <button className="white-btn" onClick={signOut}><LogOut size={15} /> Sign out</button>
           </div>
         </div>
         <div className="settings-row">
           <label>Income {currencySymbol} <input type="number" value={monthlyIncome} onChange={(e) => setMonthlyIncome(Number(e.target.value) || 0)} /></label>
           <label>Savings goal {currencySymbol} <input type="number" value={savingsGoal} onChange={(e) => setSavingsGoal(Number(e.target.value) || 0)} /></label>
           <button className="white-btn" onClick={exportCSV}><Download size={15} /> Export CSV</button>
-          <button className="white-btn" onClick={resetAll}><RotateCcw size={15} /> Start Blank</button>
-          <button className="white-btn" onClick={toggleTheme}>{darkMode ? <Sun size={15} /> : <Moon size={15} />} {darkMode ? "Light mode" : "Dark mode"}</button>
-          <button className="white-btn" onClick={syncNow}>Save to Supabase</button>
-          {user && <button className="white-btn" onClick={signOut}><LogOut size={15} /> Sign out</button>}
         </div>
       </header>
 
-      {syncStatus === "error" && (
-        <div className="alert" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>
-          <AlertTriangle size={18} />
-          <span><strong>Supabase error:</strong> {syncError || "Could not load or save your data."} Nothing is being saved to Supabase right now.</span>
-          <button className="pill" onClick={() => window.location.reload()}>Try again</button>
-        </div>
-      )}
-
-      {(overBudget.length > 0 || balance < 200) && expenses.length > 0 && (
-        <div className="alert">
-          <AlertTriangle size={18} />
-          <span>
-            {overBudget.length > 0 ? `Over budget in: ${overBudget.join(", ")}. ` : ""}
-            {balance < 200 ? `Low balance, only ${currencySymbol}${balance.toFixed(2)} left. ` : ""}
-            {projected > monthlyIncome && monthlyIncome > 0 ? `At this pace you will spend ${currencySymbol}${projected} this month.` : ""}
-          </span>
-        </div>
-      )}
-      {currentMonthClosed && (
-        <div className="alert" style={{ color: "var(--ink-dim)" }}>
-          <Lock size={18} /><span>This month ({monthFilter}) is closed and locked.</span>
-        </div>
-      )}
-
       <div className="stats">
-        <div className="card stat"><div className="stat-icon green"><Wallet size={22} /></div><div><span>Monthly Income</span><strong>{currencySymbol}{animatedIncome.toFixed(2)}</strong><small>Your real income</small></div></div>
-        <div className="card stat"><div className="stat-icon red"><TrendingDown size={22} /></div><div><span>Total Spent</span><strong>{currencySymbol}{animatedTotal.toFixed(2)}</strong><small>{monthExpenses.length} transactions</small></div></div>
-        <div className="card stat"><div className="stat-icon blue"><TrendingUp size={22} /></div><div><span>Balance Left</span><strong className={balance < 0 ? "danger" : "good"}>{currencySymbol}{animatedBalance.toFixed(2)}</strong><small>{currencySymbol}{dailyAvg.toFixed(2)} / day avg</small></div></div>
-        <div className="card stat"><div className="stat-icon purple"><PiggyBank size={22} /></div><div><span>Savings</span><strong>{currencySymbol}{animatedSavings.toFixed(2)}</strong><small>Goal {currencySymbol}{savingsGoal} - {savingsPct}%</small></div></div>
-        <div className="card stat ring-card"><ProgressRing pct={animatedSpentPct} size={124} stroke={11}><strong>{currencySymbol}{animatedTotal.toFixed(0)}</strong><span>spent</span></ProgressRing><div><span>Spent of income</span><strong>{Math.round(animatedSpentPct * 100)}%</strong><small>{currencySymbol}{animatedIncome.toFixed(2)} income</small></div></div>
+        <div className="card stat"><div className="stat-icon green"><Wallet size={22} /></div><div><span>Monthly Income</span><strong>{currencySymbol}{animatedIncome.toFixed(2)}</strong></div></div>
+        <div className="card stat"><div className="stat-icon red"><TrendingDown size={22} /></div><div><span>Total Spent</span><strong>{currencySymbol}{animatedTotal.toFixed(2)}</strong></div></div>
+        <div className="card stat"><div className="stat-icon blue"><TrendingUp size={22} /></div><div><span>Balance Left</span><strong className={balance < 0 ? "danger" : "good"}>{currencySymbol}{animatedBalance.toFixed(2)}</strong></div></div>
+        <div className="card stat"><div className="stat-icon purple"><PiggyBank size={22} /></div><div><span>Savings</span><strong>{currencySymbol}{animatedSavings.toFixed(2)}</strong></div></div>
+        <div className="card stat ring-card"><ProgressRing pct={animatedSpentPct} size={124} stroke={11}><strong>{currencySymbol}{animatedTotal.toFixed(0)}</strong><span>spent</span></ProgressRing><div><span>Spent of income</span><strong>{Math.round(animatedSpentPct * 100)}%</strong></div></div>
       </div>
 
       <div className="card quick-add">
-        <h3><Zap size={18} /> Quick Add - 10 seconds at the store</h3>
+        <h3><Zap size={18} /> Quick Add</h3>
         <form onSubmit={quickAdd} className="quick-form">
           <input type="number" step="0.01" value={quickAmount} onChange={(e) => setQuickAmount(e.target.value)} placeholder={`Amount ${currencySymbol}`} required />
           <input value={quickTitle} onChange={(e) => setQuickTitle(e.target.value)} placeholder="What was it?" />
@@ -1377,253 +424,35 @@ export default function App() {
 
       <h2 className="section-heading">All Expenses</h2>
       <div className="bottom">
-        <form onSubmit={(e) => addExpense(e, false)} className="card form">
+        <form onSubmit={addExpense} className="card form">
           <h3>Add Expense</h3>
           {error && <div className="form-error">{error}</div>}
-          {pendingDuplicate && (
-            <div className="form-error" style={{ color: "var(--warn)", borderColor: "var(--warn)" }}>
-              <span>Duplicate? Add it anyway?</span>
-              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                <button type="button" onClick={(e) => addExpense(e, true)}>Add anyway</button>
-                <button type="button" className="small-ghost-btn" onClick={() => { setPendingDuplicate(null); setError(""); }}>Cancel</button>
-              </div>
-            </div>
-          )}
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What did you spend on?" />
           <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={`Amount ${currencySymbol}`} />
           <select value={category} onChange={(e) => setCategory(e.target.value)}>{categories.map((c) => <option key={c}>{c}</option>)}</select>
-          <select value={frequency} onChange={(e) => setFrequency(e.target.value)} title="How often does this repeat?">{frequencies.map((f) => <option key={f}>{f}</option>)}</select>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} title="Start date - which month this belongs to" />
+          <select value={frequency} onChange={(e) => setFrequency(e.target.value)}>{frequencies.map((f) => <option key={f}>{f}</option>)}</select>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           <button type="submit">Add Expense</button>
-          <small style={{ color: "var(--ink-dim)" }}>Pick a repeat - Monthly, Weekly or Biweekly goes in the Fixed box, One-time goes in the Flexible box.</small>
         </form>
         <div className="card">
           <h3>Your spending <small>{filtered.length} shown</small></h3>
           <div className="toolbar">
             <div className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." /></div>
             <select value={filter} onChange={(e) => setFilter(e.target.value)}><option>All</option>{categories.map((c) => <option key={c}>{c}</option>)}</select>
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-              <option value="newest">Newest</option><option value="oldest">Oldest</option><option value="highest">Highest {currencySymbol}</option><option value="lowest">Lowest {currencySymbol}</option>
-            </select>
           </div>
-          <p className="box-note">Fixed repeats every month. Flexible is one-off.</p>
-          <div className="box-total">Fixed: {currencySymbol}{animatedFixed.toFixed(2)} / month &nbsp;•&nbsp; Flexible total: {currencySymbol}{animatedFlex.toFixed(2)}</div>
         </div>
       </div>
 
       <div className="two-boxes">
         <div className="card fixed-box">
-          <h3>Fixed - every month <small>{fixedList.length} expenses - {currencySymbol}{fixedTotal.toFixed(2)} a month</small></h3>
-          <p className="box-note">Rent, transport, bills.</p>
-          {fixedList.length === 0 && <p style={{ color: "var(--ink-dim)" }}>No fixed expenses yet.</p>}
+          <h3>Fixed <small>{currencySymbol}{fixedTotal.toFixed(2)}</small></h3>
           {fixedList.map(expenseRow)}
         </div>
         <div className="card flex-box">
-          <h3>Flexible - one-off <small>{flexList.length} expenses - {currencySymbol}{flexTotal.toFixed(2)}</small></h3>
-          <p className="box-note">One-off buys.</p>
-          {flexList.length === 0 && <p style={{ color: "var(--ink-dim)" }}>No flexible expenses yet.</p>}
+          <h3>Flexible <small>{currencySymbol}{flexTotal.toFixed(2)}</small></h3>
           {flexList.map(expenseRow)}
         </div>
       </div>
-
-      <div className="card sections-area">
-        <h3>My Expense Sections <small>Create any block you want</small></h3>
-        <div className="add-section-row">
-          <input value={newSectionTitle} onChange={(e) => setNewSectionTitle(e.target.value)} placeholder="New section name" onKeyDown={(e) => { if (e.key === "Enter") addSection(); }} />
-          <button onClick={addSection}><Plus size={16} /> Add Section</button>
-        </div>
-        {sections.length === 0 && <p style={{ color: "var(--ink-dim)" }}>No sections yet.</p>}
-        {sections.map((section) => {
-          const stotal = sectionTotal(section);
-          const avg = section.items.length ? stotal / section.items.length : 0;
-          return (
-            <div key={section.id} className="section-card">
-              <div className="section-title-row">
-                <input className="section-title" value={section.title} onChange={(e) => updateSectionTitle(section.id, e.target.value)} />
-                <button className="delete-section-btn" onClick={() => deleteSection(section.id)}><Trash2 size={16} /> Delete section</button>
-              </div>
-              <div className="transport-grid">
-                {section.items.map((item) => {
-                  const share = stotal > 0 ? Math.round(((Number(item.amount) || 0) / stotal) * 100) : 0;
-                  return (
-                    <div key={item.id} className="person-card">
-                      <div className="field">
-                        <label>Name</label>
-                        <input className="person-name" value={item.name} onChange={(e) => updateItem(section.id, item.id, "name", e.target.value)} placeholder="Person name" />
-                      </div>
-                      <div className="field">
-                        <label>Amount {currencySymbol}</label>
-                        <input type="number" min="0" step="0.01" value={item.amount} onChange={(e) => updateItem(section.id, item.id, "amount", e.target.value)} />
-                      </div>
-                      <div className="field">
-                        <label>Note</label>
-                        <input value={item.note} onChange={(e) => updateItem(section.id, item.id, "note", e.target.value)} placeholder="Bus pass, fuel..." />
-                      </div>
-                      <div className="person-share">
-                        <span>{currencySymbol}{(Number(item.amount) || 0).toFixed(2)} - {share}% of total</span>
-                        <div className="budget-bar"><div className="budget-fill" style={{ width: `${share}%`, background: "var(--cyan)" }} /></div>
-                      </div>
-                      <button className="small-ghost-btn" onClick={() => deleteItemFromSection(section.id, item.id)}>Remove person</button>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="section-actions">
-                <button className="small-ghost-btn" onClick={() => addItemToSection(section.id)}><Plus size={14} /> Add person</button>
-              </div>
-              <div className="transport-total">
-                <div className="total-stat">
-                  <span>Total - {section.title}</span>
-                  <strong>{currencySymbol}{stotal.toFixed(2)}</strong>
-                  <small>{section.items.length} persons</small>
-                </div>
-                <div className="total-stat">
-                  <span>Average per person</span>
-                  <strong>{currencySymbol}{avg.toFixed(2)}</strong>
-                  <small>total / {section.items.length}</small>
-                </div>
-                <div className="total-stat">
-                  <span>Items</span>
-                  <strong>{section.items.length}</strong>
-                  <small>rows in this section</small>
-                </div>
-                <button onClick={() => addSectionTotalToMain(section)} disabled={stotal <= 0}>
-                  Add {currencySymbol}{stotal.toFixed(2)} to main
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="charts">
-        <div className="card">
-          <h3>Spending Trend <small>Income vs spent</small></h3>
-          {expenses.length === 0 ? <p style={{ color: "var(--ink-dim)" }}>No data yet.</p> : (
-            <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={monthlyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "rgba(203,213,225,0.12)" : "rgba(30,41,59,0.1)"} />
-                <XAxis dataKey="month" /><YAxis /><Tooltip /><Legend />
-                <Area type="monotone" dataKey="income" stroke={darkMode ? "#cbd5e1" : "#334155"} fill={darkMode ? "rgba(203,213,225,0.16)" : "rgba(51,65,85,0.14)"} name="Income" />
-                <Area type="monotone" dataKey="spent" stroke={darkMode ? "#64748b" : "#64748b"} fill={darkMode ? "rgba(100,116,139,0.22)" : "rgba(100,116,139,0.18)"} name="Spent" />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-        <div className="card">
-          <h3>Where It Goes <small>Donut by category</small></h3>
-          {byCategory.length === 0 ? <p style={{ color: "var(--ink-dim)" }}>No data yet.</p> : (
-            <>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={3}>
-                    {byCategory.map((entry, i) => <Cell key={i} fill={(darkMode ? COLORS_DARK : COLORS_LIGHT)[i % COLORS_LIGHT.length]} />)}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="legend">
-                {byCategory.map((c, i) => <span key={c.name}><span className="dot" style={{ background: (darkMode ? COLORS_DARK : COLORS_LIGHT)[i % COLORS_LIGHT.length] }} />{c.name} {currencySymbol}{c.value}</span>)}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="charts-2">
-        <div className="card">
-          <h3>Spending by Category <small>Bar chart</small></h3>
-          {byCategory.length === 0 ? <p style={{ color: "var(--ink-dim)" }}>No data yet.</p> : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={byCategory}>
-                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? "rgba(203,213,225,0.12)" : "rgba(30,41,59,0.1)"} />
-                <XAxis dataKey="name" /><YAxis /><Tooltip />
-                <Bar dataKey="value" fill={darkMode ? "#94a3b8" : "#334155"} radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-        <div className="card">
-          <h3>Budgets <small>How close are you to the limit?</small></h3>
-          {categories.map((cat, i) => {
-            const spent = byCategory.find((c) => c.name === cat)?.value || 0;
-            const limit = budgets[cat];
-            const pct = limit > 0 ? Math.min(Math.round((spent / limit) * 100), 100) : 0;
-            const over = spent > limit;
-            return (
-              <div key={cat} className="budget-row">
-                <div className="budget-top"><span>{cat}</span><span><strong>{currencySymbol}{spent}</strong> / {currencySymbol}{limit} - {pct}% {over ? "OVER" : ""}</span></div>
-                <div className="budget-bar"><div className="budget-fill" style={{ width: `${pct}%`, background: over ? "var(--bad)" : (darkMode ? COLORS_DARK : COLORS_LIGHT)[i % COLORS_LIGHT.length] }} /></div>
-              </div>
-            );
-          })}
-          <div className="goal-box">
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}><Target size={20} color="var(--cyan)" /><strong>Savings Goal: {currencySymbol}{savingsGoal}</strong></div>
-            <p style={{ margin: "8px 0" }}>You have saved {currencySymbol}{savings.toFixed(2)} this month - {savingsPct}% of your goal.</p>
-            <div className="budget-bar"><div className="budget-fill" style={{ width: `${savingsPct}%`, background: "var(--good)" }} /></div>
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <h3>Daily Spending - {heatMonth} <small>Darker = spent more that day</small></h3>
-        {expenses.length === 0 ? <p style={{ color: "var(--ink-dim)" }}>No data yet.</p> : (
-          <div className="heatmap">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="heat-head">{d}</div>)}
-            {Array.from({ length: heatFirst }).map((_, i) => <div key={`blank-${i}`} className="heat-day blank" />)}
-            {Array.from({ length: heatDays }).map((_, i) => {
-              const day = i + 1;
-              const amt = heatTotals[day] || 0;
-              return (
-                <div key={day} className={`heat-day heat-${heatLevel(amt)}`} title={`${heatMonth}-${String(day).padStart(2, "0")}: ${currencySymbol}${amt.toFixed(2)}`}>
-                  <span>{day}</span>
-                  {amt > 0 && <small>{currencySymbol}{Math.round(amt)}</small>}
-                </div>
-              );
-            })}
-          </div>
-        )}
-        <p style={{ color: "var(--ink-dim)", fontSize: 13 }}>Daily spending for this month.</p>
-      </div>
-
-      <div className="card data-tools-card">
-        <div className="tools-head">
-          <strong>Data tools</strong>
-          <span>Backup, import, and reports live here</span>
-        </div>
-        <div className="tools-buttons">
-          <button onClick={backupJSON}>Backup JSON</button>
-          <label className="tool-label" htmlFor="restore-json">Restore JSON</label>
-          <input id="restore-json" type="file" accept=".json" onChange={restoreJSON} style={{ display: "none" }} />
-          <label className="tool-label" htmlFor="import-csv"><Upload size={14} /> Import Bank CSV</label>
-          <input id="import-csv" type="file" accept=".csv" onChange={importCSV} style={{ display: "none" }} />
-          <button onClick={() => setShowReport(!showReport)}><Printer size={15} /> {showReport ? "Hide Report" : "Monthly Report"}</button>
-        </div>
-        {importMsg && <div className="import-msg">{importMsg}</div>}
-        <p className="tools-note">Everything is saved in Supabase under your account only.</p>
-      </div>
-
-      {showReport && (
-        <div className="card report-card">
-          <h3>Monthly Report - {monthFilter === "All" ? "All months" : monthFilter}</h3>
-          <div className="report-grid">
-            <div><span>Income</span><strong>{currencySymbol}{monthlyIncome.toFixed(2)}</strong></div>
-            <div><span>Spent</span><strong>{currencySymbol}{total.toFixed(2)}</strong></div>
-            <div><span>Balance</span><strong>{currencySymbol}{balance.toFixed(2)}</strong></div>
-            <div><span>Projected</span><strong>{currencySymbol}{projected}</strong></div>
-            <div><span>Transactions</span><strong>{monthExpenses.length}</strong></div>
-            <div><span>Top category</span><strong>{topCategory ? `${topCategory.name} ${currencySymbol}${topCategory.value}` : "-"}</strong></div>
-            <div><span>Biggest expense</span><strong>{biggest ? `${biggest.title} ${currencySymbol}${biggest.amount.toFixed(2)}` : "-"}</strong></div>
-            <div><span>Unpaid bills</span><strong>{currencySymbol}{unpaidTotal.toFixed(2)}</strong></div>
-          </div>
-          <h4>Section totals</h4>
-          {sectionTotals.length === 0 ? <p>No sections.</p> : sectionTotals.map((s) => <div key={s.title} className="split-row"><span>{s.title}</span><strong>{currencySymbol}{s.total.toFixed(2)}</strong></div>)}
-          {overBudget.length > 0 && <p style={{ color: "var(--bad)" }}>Over budget: {overBudget.join(", ")}</p>}
-          <h4>Recent changes</h4>
-          {history.length === 0 ? <p>No changes yet.</p> : history.slice(0, 5).map((h, i) => <div key={i} className="split-row"><span>{h.action} - {h.detail}</span><span>{new Date(h.at).toLocaleString()}</span></div>)}
-          <button onClick={() => window.print()}><Printer size={15} /> Print Report</button>
-        </div>
-      )}
 
       {lastDeleted && (
         <div className="toast">
