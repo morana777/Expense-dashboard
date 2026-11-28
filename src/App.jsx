@@ -35,6 +35,9 @@ import {
   Check,
   X,
   Calendar,
+  ArrowRight,
+  RotateCcw,
+  SlidersHorizontal,
 } from "lucide-react";
 import ThreeBackground from "./ThreeBackground.jsx";
 
@@ -259,11 +262,15 @@ export default function App() {
   // Core Financial Data
   const [expenses, setExpenses] = useState([]);
   const [bills, setBills] = useState([]);
+  const [sections, setSections] = useState([]);
   const [budgets, setBudgets] = useState(DEFAULT_BUDGETS);
   const [monthlyIncome, setMonthlyIncome] = useState(0);
   const [savingsGoal, setSavingsGoal] = useState(0);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataHydrated, setDataHydrated] = useState(false);
+
+  const [newSectionTitle, setNewSectionTitle] = useState("");
+  const [sectionInputs, setSectionInputs] = useState({});
 
   // Filters, Search, Sorting & Editing
   const [monthFilter, setMonthFilter] = useState("All");
@@ -273,6 +280,9 @@ export default function App() {
   const [sortBy, setSortBy] = useState("newest");
   const [selectedHeatDay, setSelectedHeatDay] = useState(null);
   const [chartView, setChartView] = useState("daily");
+  const [simTrimPct, setSimTrimPct] = useState(15);
+  const [simExtraSave, setSimExtraSave] = useState(0);
+  const [simMonths, setSimMonths] = useState(12);
 
   // Form States
   const [title, setTitle] = useState("");
@@ -384,6 +394,7 @@ export default function App() {
   const resetToBlank = useCallback(() => {
     setExpenses([]);
     setBills([]);
+    setSections([]);
     setBudgets(DEFAULT_BUDGETS);
     setMonthlyIncome(0);
     setSavingsGoal(0);
@@ -393,7 +404,7 @@ export default function App() {
     setDataHydrated(false);
   }, []);
 
-  // Fetch user data from Cloudflare Worker on login
+  // Fetch user data from Cloudflare Worker on login (or hydrate local guest workspace)
   useEffect(() => {
     if (!authToken || !user?.id) return;
     let cancelled = false;
@@ -407,11 +418,21 @@ export default function App() {
         if (cached) {
           if (Array.isArray(cached.expenses)) setExpenses(cached.expenses);
           if (Array.isArray(cached.bills)) setBills(cached.bills);
+          if (Array.isArray(cached.sections)) setSections(cached.sections);
           if (cached.budgets) setBudgets({ ...DEFAULT_BUDGETS, ...cached.budgets });
           if (typeof cached.monthlyIncome === "number") setMonthlyIncome(cached.monthlyIncome);
           if (typeof cached.savingsGoal === "number") setSavingsGoal(cached.savingsGoal);
         }
       } catch {}
+
+      if (authToken === "guest" || user.id === "guest") {
+        if (!cancelled) {
+          setDataHydrated(true);
+          setDataLoading(false);
+        }
+        return;
+      }
+
       try {
         const res = await fetch(`${API_URL}/data`, {
           headers: { Authorization: `Bearer ${authToken}` },
@@ -445,6 +466,19 @@ export default function App() {
           dueDate: b.due_date || b.dueDate,
           paid: Boolean(b.paid),
         }));
+        const rawItems = Array.isArray(data.section_items) ? data.section_items : [];
+        const nextSections = (data.sections || []).map((sec) => ({
+          id: sec.id,
+          title: sec.title,
+          items: rawItems
+            .filter((it) => it.section_id === sec.id)
+            .map((it) => ({
+              id: it.id,
+              name: it.name,
+              amount: Number(it.amount) || 0,
+              note: it.note || "",
+            })),
+        }));
         const nextIncome = Number(data.settings?.monthly_income) || 0;
         const nextGoal = Number(data.settings?.savings_goal) || 0;
         const nextBudgets = { ...DEFAULT_BUDGETS };
@@ -458,6 +492,7 @@ export default function App() {
 
         setExpenses(nextExpenses);
         setBills(nextBills);
+        setSections(nextSections);
         setMonthlyIncome(nextIncome);
         setSavingsGoal(nextGoal);
         setBudgets(nextBudgets);
@@ -465,6 +500,7 @@ export default function App() {
         writeCache({
           expenses: nextExpenses,
           bills: nextBills,
+          sections: nextSections,
           monthlyIncome: nextIncome,
           savingsGoal: nextGoal,
           budgets: nextBudgets,
@@ -486,6 +522,7 @@ export default function App() {
   useEffect(() => {
     if (!authToken || !dataHydrated) return;
     writeCache({ monthlyIncome, savingsGoal });
+    if (authToken === "guest") return;
     const t = setTimeout(() => {
       fetch(`${API_URL}/settings`, {
         method: "PUT",
@@ -534,6 +571,15 @@ export default function App() {
     } finally {
       setAuthBusy(false);
     }
+  };
+
+  const continueAsGuest = () => {
+    resetToBlank();
+    const guestUser = { id: "guest", email: "Local Workspace" };
+    localStorage.setItem("cf_jwt", "guest");
+    localStorage.setItem("cf_user", JSON.stringify(guestUser));
+    setAuthToken("guest");
+    setUser(guestUser);
   };
 
   const signOut = () => {
@@ -673,6 +719,83 @@ export default function App() {
   const fixedTotal = useMemo(() => fixedList.reduce((s, e) => s + Number(e.amount || 0), 0), [fixedList]);
   const flexTotal = useMemo(() => flexList.reduce((s, e) => s + Number(e.amount || 0), 0), [flexList]);
 
+  // Period Spotlight Metrics
+  const safePerDay = useMemo(() => {
+    if (monthlyIncome <= 0) return 0;
+    const divisor = Math.max(1, daysLeft || daysInMonth);
+    return Math.max(0, balance / divisor);
+  }, [monthlyIncome, balance, daysLeft, daysInMonth]);
+
+  const largestExpense = useMemo(() => {
+    if (monthExpenses.length === 0) return null;
+    return monthExpenses.reduce((max, e) => (Number(e.amount || 0) > Number(max.amount || 0) ? e : max), monthExpenses[0]);
+  }, [monthExpenses]);
+
+  const nextUnpaidBill = useMemo(() => {
+    const unpaid = bills.filter((b) => !b.paid).sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
+    return unpaid[0] || null;
+  }, [bills]);
+
+  const spotlightCatName = categoryFilter !== "All" ? categoryFilter : byCategory[0]?.name || null;
+  const spotlightStats = useMemo(() => {
+    if (!spotlightCatName) return null;
+    const rows = monthExpenses.filter((e) => (e.category || "Other") === spotlightCatName);
+    const sum = rows.reduce((s, e) => s + Number(e.amount || 0), 0);
+    const limit = budgets[spotlightCatName] || 0;
+    return {
+      name: spotlightCatName,
+      count: rows.length,
+      sum,
+      avg: rows.length > 0 ? sum / rows.length : 0,
+      remaining: limit > 0 ? limit - sum : null,
+    };
+  }, [spotlightCatName, monthExpenses, budgets]);
+
+  const avgFilteredAmount = useMemo(
+    () => (filtered.length > 0 ? filtered.reduce((s, e) => s + Number(e.amount || 0), 0) / filtered.length : 0),
+    [filtered]
+  );
+
+  const ledgerRatio = useMemo(() => {
+    const sum = fixedTotal + flexTotal;
+    const fixedPct = sum > 0 ? Math.round((fixedTotal / sum) * 100) : 0;
+    return { fixedPct, flexPct: sum > 0 ? 100 - fixedPct : 0 };
+  }, [fixedTotal, flexTotal]);
+
+  // Interactive Cashflow Lab Simulation
+  const periodFlexTotal = useMemo(
+    () => monthExpenses.filter((e) => !isFixedExpense(e)).reduce((s, e) => s + Number(e.amount || 0), 0),
+    [monthExpenses]
+  );
+
+  const simMetrics = useMemo(() => {
+    const baseNet = monthlyIncome - total;
+    const freedFromFlex = periodFlexTotal * (simTrimPct / 100);
+    const simNet = baseNet + freedFromFlex + simExtraSave;
+    const gainPerMonth = freedFromFlex + simExtraSave;
+    const series = [];
+    for (let m = 1; m <= simMonths; m++) {
+      series.push({
+        label: `M${m}`,
+        Baseline: Number((baseNet * m).toFixed(2)),
+        Simulated: Number((simNet * m).toFixed(2)),
+      });
+    }
+    const baseETA = savingsGoal > 0 && baseNet > 0 ? Math.ceil(savingsGoal / baseNet) : null;
+    const simETA = savingsGoal > 0 && simNet > 0 ? Math.ceil(savingsGoal / simNet) : null;
+    return {
+      baseNet,
+      freedFromFlex,
+      simNet,
+      gainPerMonth,
+      projectedBaseline: baseNet * simMonths,
+      projectedSimulated: simNet * simMonths,
+      baseETA,
+      simETA,
+      series,
+    };
+  }, [monthlyIncome, total, periodFlexTotal, simTrimPct, simExtraSave, simMonths, savingsGoal]);
+
   // Animated KPI Figures
   const animatedIncome = useCountUp(monthlyIncome);
   const animatedTotal = useCountUp(total);
@@ -707,7 +830,7 @@ export default function App() {
     setExpenses(nextList);
     writeCache({ expenses: nextList });
 
-    if (authToken) {
+    if (authToken && authToken !== "guest") {
       try {
         const res = await fetch(`${API_URL}/expenses`, {
           method: "POST",
@@ -772,7 +895,7 @@ export default function App() {
     writeCache({ expenses: nextList });
     setLastDeleted(found);
 
-    if (authToken) {
+    if (authToken && authToken !== "guest") {
       fetch(`${API_URL}/expenses/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${authToken}` },
@@ -816,7 +939,7 @@ export default function App() {
     writeCache({ expenses: nextList });
     setEditingId(null);
 
-    if (authToken) {
+    if (authToken && authToken !== "guest") {
       fetch(`${API_URL}/expenses/${updated.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
@@ -832,7 +955,7 @@ export default function App() {
     setBudgets(nextBudgets);
     writeCache({ budgets: nextBudgets });
 
-    if (authToken) {
+    if (authToken && authToken !== "guest") {
       fetch(`${API_URL}/budgets`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
@@ -853,7 +976,7 @@ export default function App() {
     setBillTitle("");
     setBillAmount("");
 
-    if (authToken) {
+    if (authToken && authToken !== "guest") {
       try {
         const res = await fetch(`${API_URL}/bills`, {
           method: "POST",
@@ -879,7 +1002,7 @@ export default function App() {
     const nextBills = bills.map((b) => (b.id === bill.id ? { ...b, paid: nextPaid } : b));
     setBills(nextBills);
     writeCache({ bills: nextBills });
-    if (authToken) {
+    if (authToken && authToken !== "guest") {
       fetch(`${API_URL}/bills/${bill.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
@@ -892,7 +1015,7 @@ export default function App() {
     const nextBills = bills.filter((b) => b.id !== id);
     setBills(nextBills);
     writeCache({ bills: nextBills });
-    if (authToken) {
+    if (authToken && authToken !== "guest") {
       fetch(`${API_URL}/bills/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${authToken}` },
@@ -904,6 +1027,111 @@ export default function App() {
     createExpense(bill.title, Number(bill.amount), "Housing", todayStr, "Monthly");
     if (!bill.paid) toggleBillPaid(bill);
     setStatusMsg(`Recorded "${bill.title}" in expenses.`);
+  };
+
+  // Custom Sections & Split Item Mutations
+  const addSection = async (e) => {
+    e.preventDefault();
+    const clean = newSectionTitle.trim();
+    if (!clean) return;
+    const tempId = Date.now();
+    const nextSections = [...sections, { id: tempId, title: clean, items: [] }];
+    setSections(nextSections);
+    writeCache({ sections: nextSections });
+    setNewSectionTitle("");
+
+    if (authToken && authToken !== "guest") {
+      try {
+        const res = await fetch(`${API_URL}/sections`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ title: clean }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.id) {
+            setSections((prev) => {
+              const synced = prev.map((sec) => (sec.id === tempId ? { ...sec, id: data.id } : sec));
+              writeCache({ sections: synced });
+              return synced;
+            });
+          }
+        }
+      } catch {}
+    }
+  };
+
+  const deleteSection = (secId) => {
+    const nextSections = sections.filter((s) => s.id !== secId);
+    setSections(nextSections);
+    writeCache({ sections: nextSections });
+    if (authToken && authToken !== "guest") {
+      fetch(`${API_URL}/sections/${secId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${authToken}` },
+      }).catch(() => {});
+    }
+  };
+
+  const updateSectionDraft = (secId, field, value) => {
+    setSectionInputs((prev) => ({
+      ...prev,
+      [secId]: { ...(prev[secId] || { name: "", amount: "", note: "" }), [field]: value },
+    }));
+  };
+
+  const addSectionItem = async (e, secId) => {
+    e.preventDefault();
+    const draft = sectionInputs[secId] || {};
+    const cleanName = (draft.name || "").trim();
+    const num = Math.max(0, Number(draft.amount) || 0);
+    if (!cleanName) return;
+    const tempId = Date.now() + Math.floor(Math.random() * 1000);
+    const newItem = { id: tempId, name: cleanName, amount: num, note: (draft.note || "").trim() };
+    const nextSections = sections.map((sec) =>
+      sec.id === secId ? { ...sec, items: [...(sec.items || []), newItem] } : sec
+    );
+    setSections(nextSections);
+    writeCache({ sections: nextSections });
+    setSectionInputs((prev) => ({ ...prev, [secId]: { name: "", amount: "", note: "" } }));
+
+    if (authToken && authToken !== "guest") {
+      try {
+        const res = await fetch(`${API_URL}/sections/${secId}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify(newItem),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.id) {
+            setSections((prev) => {
+              const synced = prev.map((sec) =>
+                sec.id === secId
+                  ? { ...sec, items: (sec.items || []).map((it) => (it.id === tempId ? { ...it, id: data.id } : it)) }
+                  : sec
+              );
+              writeCache({ sections: synced });
+              return synced;
+            });
+          }
+        }
+      } catch {}
+    }
+  };
+
+  const deleteSectionItem = (secId, itemId) => {
+    const nextSections = sections.map((sec) =>
+      sec.id === secId ? { ...sec, items: (sec.items || []).filter((it) => it.id !== itemId) } : sec
+    );
+    setSections(nextSections);
+    writeCache({ sections: nextSections });
+    if (authToken && authToken !== "guest") {
+      fetch(`${API_URL}/section-items/${itemId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${authToken}` },
+      }).catch(() => {});
+    }
   };
 
   // CSV / JSON Tools
@@ -1106,9 +1334,12 @@ export default function App() {
             >
               {authMode === "signup" ? "Already have an account? Sign in" : "No account yet? Create one"}
             </button>
+            <button type="button" className="login-guest" onClick={continueAsGuest}>
+              Continue without account (Local Workspace)
+            </button>
             <p className="login-note">
               <Lock size={13} />
-              <span>Your ledger is stored securely under your account.</span>
+              <span>Sign in to sync across devices, or use a local workspace on this browser.</span>
             </p>
           </div>
         </div>
@@ -1119,6 +1350,7 @@ export default function App() {
   return (
     <div className={`app ${darkMode ? "dark" : ""}`}>
       <ThreeBackground dark={darkMode} />
+      <div className="app-content">
 
       {/* 3-Zone Top Bar */}
       <nav className="topbar" aria-label="Primary navigation">
@@ -1134,6 +1366,7 @@ export default function App() {
             { id: "overview", label: "Overview" },
             { id: "transactions", label: "Transactions" },
             { id: "budgets", label: "Budgets & Bills" },
+            { id: "lab", label: "Cashflow Lab" },
             { id: "settings", label: "Settings" },
           ].map((tab) => (
             <button
@@ -1163,60 +1396,57 @@ export default function App() {
         </div>
       </nav>
 
-      {/* Workspace Control Strip */}
-      <section className="workspace-bar" aria-label="Workspace summary and targets">
-        <div className="workspace-greeting">
-          <h1>{formatShortMonth(activeMonth)} Cashflow</h1>
-          <div className="workspace-meta">
-            <span>{user.email}</span>
-            <span aria-hidden="true">·</span>
-            <span>{daysLeft} days left in period</span>
-            <span aria-hidden="true">·</span>
-            <span className="num">
-              Projected: {currencySymbol}
-              {projected.toLocaleString()}
-            </span>
+      {/* Workspace Control Strip (hidden on dedicated Settings tab) */}
+      {activeTab !== "settings" && (
+        <section className="workspace-bar" aria-label="Workspace summary and targets">
+          <div className="workspace-greeting">
+            <h1>{formatShortMonth(activeMonth)} Cashflow</h1>
+            <div className="workspace-meta">
+              <span>{user.email}</span>
+              <span aria-hidden="true">·</span>
+              <span>{daysLeft} days left in period</span>
+              <span aria-hidden="true">·</span>
+              <span className="num">
+                Projected: {currencySymbol}
+                {projected.toLocaleString()}
+              </span>
+            </div>
           </div>
-        </div>
 
-        <div className="workspace-controls">
-          <select aria-label="Filter month" value={monthFilter} onChange={(e) => { setMonthFilter(e.target.value); setSelectedHeatDay(null); }}>
-            <option value="All">All Months</option>
-            {availableMonths.map((ym) => (
-              <option key={ym} value={ym}>
-                {formatShortMonth(ym)}
-              </option>
-            ))}
-          </select>
+          <div className="workspace-controls">
+            <select aria-label="Filter month" value={monthFilter} onChange={(e) => { setMonthFilter(e.target.value); setSelectedHeatDay(null); }}>
+              <option value="All">All Months</option>
+              {availableMonths.map((ym) => (
+                <option key={ym} value={ym}>
+                  {formatShortMonth(ym)}
+                </option>
+              ))}
+            </select>
 
-          <label className="inline-field">
-            <span>Income {currencySymbol}</span>
-            <input
-              type="number"
-              min="0"
-              value={monthlyIncome || ""}
-              placeholder="0"
-              onChange={(e) => setMonthlyIncome(Math.max(0, Number(e.target.value) || 0))}
-            />
-          </label>
+            <label className="inline-field">
+              <span>Income {currencySymbol}</span>
+              <input
+                type="number"
+                min="0"
+                value={monthlyIncome || ""}
+                placeholder="0"
+                onChange={(e) => setMonthlyIncome(Math.max(0, Number(e.target.value) || 0))}
+              />
+            </label>
 
-          <label className="inline-field">
-            <span>Goal {currencySymbol}</span>
-            <input
-              type="number"
-              min="0"
-              value={savingsGoal || ""}
-              placeholder="0"
-              onChange={(e) => setSavingsGoal(Math.max(0, Number(e.target.value) || 0))}
-            />
-          </label>
-
-          <button type="button" className="ghost-btn" onClick={exportCSV} disabled={expenses.length === 0}>
-            <Download size={15} />
-            <span>Export CSV</span>
-          </button>
-        </div>
-      </section>
+            <label className="inline-field">
+              <span>Goal {currencySymbol}</span>
+              <input
+                type="number"
+                min="0"
+                value={savingsGoal || ""}
+                placeholder="0"
+                onChange={(e) => setSavingsGoal(Math.max(0, Number(e.target.value) || 0))}
+              />
+            </label>
+          </div>
+        </section>
+      )}
 
       {/* Status or Error Notifications */}
       {error && (
@@ -1250,9 +1480,9 @@ export default function App() {
         </div>
       )}
 
-      {/* ==================== TAB 1: OVERVIEW ==================== */}
+      {/* ==================== TAB 1: OVERVIEW (KPIs, CHARTS & HIGHLIGHTS) ==================== */}
       {activeTab === "overview" && (
-        <>
+        <div key="overview" className="tab-stage">
           {/* 5-Card KPI Grid */}
           <div className="stats-grid">
             <div className="card stat">
@@ -1298,7 +1528,13 @@ export default function App() {
                   {currencySymbol}
                   {animatedBalance.toFixed(2)}
                 </strong>
-                <span className="stat-note">{balance >= 0 ? "Available funds" : "Deficit"}</span>
+                <span className="stat-note">
+                  {balance < 0
+                    ? "Deficit"
+                    : monthlyIncome > 0
+                      ? `Safe ${currencySymbol}${safePerDay.toFixed(2)} / day`
+                      : "Available funds"}
+                </span>
               </div>
             </div>
 
@@ -1440,7 +1676,7 @@ export default function App() {
               <div className="card-head">
                 <div>
                   <h3>Category Mix</h3>
-                  <span className="card-sub">Click a category to filter</span>
+                  <span className="card-sub">Click a category to spotlight</span>
                 </div>
                 {categoryFilter !== "All" && (
                   <button type="button" className="ghost-btn" style={{ minHeight: 30, padding: "4px 10px", fontSize: 12 }} onClick={() => setCategoryFilter("All")}>
@@ -1454,83 +1690,91 @@ export default function App() {
                   <p>Category shares will appear once you add transactions.</p>
                 </div>
               ) : (
-                <div className="donut-wrap">
-                  <div style={{ width: 170, height: 170 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={48} outerRadius={74} paddingAngle={2}>
-                          {byCategory.map((entry, idx) => (
-                            <Cell
-                              key={entry.name}
-                              fill={catColors[CATEGORIES.indexOf(entry.name) >= 0 ? CATEGORIES.indexOf(entry.name) : idx % catColors.length]}
-                              opacity={categoryFilter === "All" || categoryFilter === entry.name ? 1 : 0.3}
-                            />
-                          ))}
-                        </Pie>
-                        <Tooltip content={<ChartTooltip currencySymbol={currencySymbol} />} />
-                      </PieChart>
-                    </ResponsiveContainer>
+                <>
+                  <div className="donut-wrap">
+                    <div style={{ width: 170, height: 170 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={48} outerRadius={74} paddingAngle={2}>
+                            {byCategory.map((entry, idx) => (
+                              <Cell
+                                key={entry.name}
+                                fill={catColors[CATEGORIES.indexOf(entry.name) >= 0 ? CATEGORIES.indexOf(entry.name) : idx % catColors.length]}
+                                opacity={categoryFilter === "All" || categoryFilter === entry.name ? 1 : 0.3}
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip content={<ChartTooltip currencySymbol={currencySymbol} />} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    <div className="cat-breakdown">
+                      {byCategory.map((entry, idx) => {
+                        const pct = total > 0 ? Math.round((entry.value / total) * 100) : 0;
+                        const color = catColors[CATEGORIES.indexOf(entry.name) >= 0 ? CATEGORIES.indexOf(entry.name) : idx % catColors.length];
+                        return (
+                          <button
+                            key={entry.name}
+                            type="button"
+                            className="cat-row"
+                            onClick={() => setCategoryFilter(categoryFilter === entry.name ? "All" : entry.name)}
+                            style={{
+                              outline: categoryFilter === entry.name ? "1px solid var(--accent)" : "none",
+                            }}
+                          >
+                            <span className="cat-row-left">
+                              <span className="swatch" style={{ background: color }} />
+                              <span>{entry.name}</span>
+                            </span>
+                            <span className="cat-row-right">
+                              {currencySymbol}
+                              {entry.value.toFixed(0)} · {pct}%
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  <div className="cat-breakdown">
-                    {byCategory.map((entry, idx) => {
-                      const pct = total > 0 ? Math.round((entry.value / total) * 100) : 0;
-                      const color = catColors[CATEGORIES.indexOf(entry.name) >= 0 ? CATEGORIES.indexOf(entry.name) : idx % catColors.length];
-                      return (
-                        <button
-                          key={entry.name}
-                          type="button"
-                          className="cat-row"
-                          onClick={() => setCategoryFilter(categoryFilter === entry.name ? "All" : entry.name)}
-                          style={{
-                            outline: categoryFilter === entry.name ? "1px solid var(--accent)" : "none",
-                          }}
-                        >
-                          <span className="cat-row-left">
-                            <span className="swatch" style={{ background: color }} />
-                            <span>{entry.name}</span>
-                          </span>
-                          <span className="cat-row-right">
-                            {currencySymbol}
-                            {entry.value.toFixed(0)} · {pct}%
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                  {spotlightStats && (
+                    <div className="cat-spotlight">
+                      <span>
+                        <strong>{spotlightStats.name}</strong> · {spotlightStats.count} {spotlightStats.count === 1 ? "entry" : "entries"} · Avg{" "}
+                        <span className="num">
+                          {currencySymbol}
+                          {spotlightStats.avg.toFixed(2)}
+                        </span>
+                      </span>
+                      {spotlightStats.remaining !== null && (
+                        <span className={`num ${spotlightStats.remaining < 0 ? "danger" : "good"}`}>
+                          {spotlightStats.remaining >= 0
+                            ? `${currencySymbol}${spotlightStats.remaining.toFixed(0)} left`
+                            : `${currencySymbol}${Math.abs(spotlightStats.remaining).toFixed(0)} over`}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
 
-          {/* Lower Overview Split: Recent Ledger + Budget Snapshot */}
+          {/* Overview Compact Highlights Split (Recent 5 + Budget Snapshot) */}
           <div className="overview-lower">
             <div className="card">
               <div className="card-head">
                 <div>
-                  <h3>Recent Transactions</h3>
+                  <h3>Recent Activity</h3>
                   <span className="card-sub">
-                    {filtered.length} matching · Fixed {currencySymbol}
-                    {fixedTotal.toFixed(0)} · Flexible {currencySymbol}
-                    {flexTotal.toFixed(0)}
+                    Latest {Math.min(5, filtered.length)} of {filtered.length} entries
+                    {categoryFilter !== "All" ? ` in ${categoryFilter}` : ""}
                   </span>
                 </div>
-                <button type="button" className="ghost-btn" style={{ minHeight: 34, padding: "5px 12px", fontSize: 13 }} onClick={() => setActiveTab("transactions")}>
-                  View all
+                <button type="button" className="ghost-btn" style={{ minHeight: 34, padding: "4px 12px", fontSize: 13 }} onClick={() => setActiveTab("transactions")}>
+                  <span>Full Ledger</span>
+                  <ArrowRight size={14} />
                 </button>
-              </div>
-
-              <div className="ledger-toolbar">
-                <div className="search-box">
-                  <Search size={15} />
-                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search transactions..." />
-                </div>
-                <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-                  <option value="All">All categories</option>
-                  {CATEGORIES.map((c) => (
-                    <option key={c}>{c}</option>
-                  ))}
-                </select>
               </div>
 
               {dataLoading ? (
@@ -1541,25 +1785,26 @@ export default function App() {
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="empty-state">
-                  <p>No transactions match your current filter.</p>
-                  <button type="button" onClick={() => setShowAddModal(true)}>
-                    <Plus size={15} />
-                    <span>Add Expense</span>
-                  </button>
+                  <p>No expenses recorded for this period yet. Use Quick Add above to log your first entry.</p>
                 </div>
               ) : (
-                <div className="ledger-list">{filtered.slice(0, 8).map(renderLedgerRow)}</div>
+                <div className="ledger-list">{filtered.slice(0, 5).map(renderLedgerRow)}</div>
               )}
             </div>
 
             <div className="card">
               <div className="card-head">
                 <div>
-                  <h3>Monthly Budget Health</h3>
-                  <span className="card-sub">Category spend vs target limits</span>
+                  <h3>Budget Snapshot</h3>
+                  <span className="card-sub">
+                    {nextUnpaidBill
+                      ? `Next bill: ${nextUnpaidBill.title} (${currencySymbol}${Number(nextUnpaidBill.amount).toFixed(0)} due ${nextUnpaidBill.dueDate})`
+                      : "Monthly category limits"}
+                  </span>
                 </div>
-                <button type="button" className="ghost-btn" style={{ minHeight: 34, padding: "5px 12px", fontSize: 13 }} onClick={() => setActiveTab("budgets")}>
-                  Edit limits
+                <button type="button" className="ghost-btn" style={{ minHeight: 34, padding: "4px 12px", fontSize: 13 }} onClick={() => setActiveTab("budgets")}>
+                  <span>Edit & Bills</span>
+                  <ArrowRight size={14} />
                 </button>
               </div>
 
@@ -1573,21 +1818,13 @@ export default function App() {
                     <div key={cat}>
                       <div className="budget-item-head">
                         <span className="budget-name">{cat}</span>
-                        <span className="budget-nums">
+                        <span className={`budget-nums ${state === "over" ? "danger" : state === "warn" ? "warn" : ""}`}>
                           {currencySymbol}
-                          {spent.toFixed(0)} / {currencySymbol}
-                          {limit.toFixed(0)}
+                          {spent.toFixed(0)} / {limit > 0 ? `${currencySymbol}${limit}` : "∞"}
                         </span>
                       </div>
                       <div className="budget-track">
                         <div className={`budget-fill ${state === "over" ? "over" : state === "warn" ? "warn" : ""}`} style={{ width: `${pct}%` }} />
-                      </div>
-                      <div className={`budget-status-text ${state === "over" ? "danger" : state === "warn" ? "warn" : ""}`}>
-                        {state === "over"
-                          ? `Over limit by ${currencySymbol}${(spent - limit).toFixed(0)}`
-                          : state === "warn"
-                          ? `Approaching limit (${pct}%)`
-                          : `${currencySymbol}${Math.max(0, limit - spent).toFixed(0)} remaining`}
                       </div>
                     </div>
                   );
@@ -1595,19 +1832,32 @@ export default function App() {
               </div>
             </div>
           </div>
-        </>
+        </div>
       )}
 
-      {/* ==================== TAB 2: TRANSACTIONS & HEATMAP ==================== */}
+      {/* ==================== TAB 2: TRANSACTIONS & DAILY SPENDING MAP ==================== */}
       {activeTab === "transactions" && (
-        <>
+        <div key="transactions" className="tab-stage">
           <div className="card" style={{ marginBottom: 18 }}>
             <div className="card-head">
               <div>
                 <h2>Full Transaction Ledger</h2>
                 <span className="card-sub">
-                  Showing {filtered.length} entries
-                  {selectedHeatDay ? ` for ${activeMonth}-${String(selectedHeatDay).padStart(2, "0")}` : ""}
+                  Showing {filtered.length} entries · Avg ticket{" "}
+                  <span className="num">
+                    {currencySymbol}
+                    {avgFilteredAmount.toFixed(2)}
+                  </span>
+                  {largestExpense ? (
+                    <>
+                      {" "}· Largest{" "}
+                      <span className="num">
+                        {currencySymbol}
+                        {Number(largestExpense.amount).toFixed(2)}
+                      </span>
+                    </>
+                  ) : null}
+                  {selectedHeatDay ? ` · Filtered for ${activeMonth}-${String(selectedHeatDay).padStart(2, "0")}` : ""}
                 </span>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1651,6 +1901,24 @@ export default function App() {
                 <option value="lowest">Lowest amount</option>
               </select>
             </div>
+
+            {/* Fixed vs Flexible Ratio Bar */}
+            <div>
+              <div className="budget-item-head" style={{ marginBottom: 4 }}>
+                <span className="card-sub">
+                  Fixed Recurring ({ledgerRatio.fixedPct}% · {currencySymbol}
+                  {fixedTotal.toFixed(2)})
+                </span>
+                <span className="card-sub">
+                  Flexible One-Time ({ledgerRatio.flexPct}% · {currencySymbol}
+                  {flexTotal.toFixed(2)})
+                </span>
+              </div>
+              <div className="ratio-track" aria-label="Fixed vs flexible spending split">
+                <div className="ratio-fixed" style={{ width: `${ledgerRatio.fixedPct}%` }} />
+                <div className="ratio-flex" style={{ width: `${ledgerRatio.flexPct}%` }} />
+              </div>
+            </div>
           </div>
 
           <div className="two-col-grid">
@@ -1662,7 +1930,12 @@ export default function App() {
                   {fixedTotal.toFixed(2)}
                 </span>
               </div>
-              {fixedList.length === 0 ? (
+              {dataLoading ? (
+                <div>
+                  <div className="skeleton-line" />
+                  <div className="skeleton-line" />
+                </div>
+              ) : fixedList.length === 0 ? (
                 <div className="empty-state">
                   <p>No recurring fixed expenses in this view.</p>
                 </div>
@@ -1679,7 +1952,12 @@ export default function App() {
                   {flexTotal.toFixed(2)}
                 </span>
               </div>
-              {flexList.length === 0 ? (
+              {dataLoading ? (
+                <div>
+                  <div className="skeleton-line" />
+                  <div className="skeleton-line" />
+                </div>
+              ) : flexList.length === 0 ? (
                 <div className="empty-state">
                   <p>No one-time expenses in this view.</p>
                 </div>
@@ -1696,7 +1974,7 @@ export default function App() {
                   <Calendar size={16} style={{ verticalAlign: "-2px", marginRight: 6 }} />
                   Daily Spending Map — {formatShortMonth(activeMonth)}
                 </h3>
-                <span className="card-sub">Click any day to filter transactions above</span>
+                <span className="card-sub">Click any day to filter the ledger above</span>
               </div>
               {selectedHeatDay && (
                 <button type="button" className="ghost-btn" onClick={() => setSelectedHeatDay(null)}>
@@ -1741,222 +2019,500 @@ export default function App() {
               })}
             </div>
           </div>
-        </>
+        </div>
       )}
 
-      {/* ==================== TAB 3: BUDGETS & BILLS ==================== */}
+      {/* ==================== TAB 3: BUDGETS, BILLS & CUSTOM SPLITS ==================== */}
       {activeTab === "budgets" && (
-        <div className="two-col-grid">
-          <div className="card">
-            <div className="card-head">
+        <div key="budgets" className="tab-stage">
+          <div className="two-col-grid">
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <h2>Category Budget Limits</h2>
+                  <span className="card-sub">Adjust monthly caps per spending category</span>
+                </div>
+              </div>
               <div>
-                <h2>Category Budget Limits</h2>
-                <span className="card-sub">Adjust monthly caps per spending category</span>
+                {CATEGORIES.map((cat) => {
+                  const spent = byCategory.find((x) => x.name === cat)?.value || 0;
+                  const limit = budgets[cat] || 0;
+                  const pct = limit > 0 ? Math.min(Math.round((spent / limit) * 100), 100) : 0;
+                  const state = limit > 0 && spent > limit ? "over" : limit > 0 && spent >= limit * 0.8 ? "warn" : "ok";
+                  return (
+                    <div key={cat} className="budget-editor-row">
+                      <div>
+                        <strong style={{ display: "block", fontSize: 14 }}>{cat}</strong>
+                        <span className={`num ${state === "over" ? "danger" : state === "warn" ? "warn" : "good"}`} style={{ fontSize: 12 }}>
+                          {currencySymbol}
+                          {spent.toFixed(0)} spent
+                        </span>
+                      </div>
+                      <div>
+                        <div className="budget-track">
+                          <div className={`budget-fill ${state === "over" ? "over" : state === "warn" ? "warn" : ""}`} style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="budget-status-text">{limit > 0 ? `${pct}% used` : "No cap set"}</span>
+                      </div>
+                      <input
+                        type="number"
+                        min="0"
+                        step="10"
+                        aria-label={`${cat} monthly budget`}
+                        value={limit}
+                        onChange={(e) => updateBudgetLimit(cat, e.target.value)}
+                        className="mono"
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </div>
-            <div>
-              {CATEGORIES.map((cat) => {
-                const spent = byCategory.find((x) => x.name === cat)?.value || 0;
-                const limit = budgets[cat] || 0;
-                const pct = limit > 0 ? Math.min(Math.round((spent / limit) * 100), 100) : 0;
-                const state = limit > 0 && spent > limit ? "over" : limit > 0 && spent >= limit * 0.8 ? "warn" : "ok";
-                return (
-                  <div key={cat} className="budget-editor-row">
-                    <div>
-                      <strong style={{ display: "block", fontSize: 14 }}>{cat}</strong>
-                      <span className={`num ${state === "over" ? "danger" : state === "warn" ? "warn" : "good"}`} style={{ fontSize: 12 }}>
-                        {currencySymbol}
-                        {spent.toFixed(0)} spent
-                      </span>
-                    </div>
-                    <div>
-                      <div className="budget-track">
-                        <div className={`budget-fill ${state === "over" ? "over" : state === "warn" ? "warn" : ""}`} style={{ width: `${pct}%` }} />
+
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <h2>Upcoming Bills</h2>
+                  <span className="card-sub">
+                    {bills.filter((b) => !b.paid).length} unpaid ·{" "}
+                    <span className="num">
+                      {currencySymbol}
+                      {bills
+                        .filter((b) => !b.paid)
+                        .reduce((s, b) => s + Number(b.amount || 0), 0)
+                        .toFixed(2)}
+                    </span>{" "}
+                    due
+                  </span>
+                </div>
+              </div>
+
+              <form onSubmit={addBill} className="bill-form">
+                <input value={billTitle} onChange={(e) => setBillTitle(e.target.value)} placeholder="Bill name (e.g. Internet)" required />
+                <input type="number" step="0.01" value={billAmount} onChange={(e) => setBillAmount(e.target.value)} placeholder={currencySymbol} required />
+                <input type="date" value={billDue} onChange={(e) => setBillDue(e.target.value)} required />
+                <button type="submit">
+                  <Plus size={15} />
+                  <span>Add</span>
+                </button>
+              </form>
+
+              {bills.length === 0 ? (
+                <div className="empty-state">
+                  <p>Track recurring rent, utilities, and subscriptions to avoid missed due dates.</p>
+                </div>
+              ) : (
+                <div>
+                  {bills.map((bill) => (
+                    <div key={bill.id} className={`bill-row ${bill.paid ? "paid" : ""}`}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                        <button
+                          type="button"
+                          className={`bill-check ${bill.paid ? "done" : ""}`}
+                          onClick={() => toggleBillPaid(bill)}
+                          aria-label={bill.paid ? `Mark ${bill.title} unpaid` : `Mark ${bill.title} paid`}
+                        >
+                          {bill.paid && <Check size={14} />}
+                        </button>
+                        <div style={{ minWidth: 0 }}>
+                          <strong className="bill-title" style={{ display: "block", fontSize: 14 }}>
+                            {bill.title}
+                          </strong>
+                          <span className="mono" style={{ fontSize: 12, color: !bill.paid && bill.dueDate < todayStr ? "var(--bad)" : "var(--ink-dim)" }}>
+                            Due {bill.dueDate} · {bill.paid ? "Paid" : bill.dueDate < todayStr ? "Overdue" : "Unpaid"}
+                          </span>
+                        </div>
                       </div>
-                      <span className="budget-status-text">{limit > 0 ? `${pct}% used` : "No cap set"}</span>
+                      <div className="row-actions">
+                        <strong className="row-amount">
+                          {currencySymbol}
+                          {Number(bill.amount).toFixed(2)}
+                        </strong>
+                        {!bill.paid && (
+                          <button type="button" className="ghost-btn" style={{ minHeight: 34, padding: "4px 10px", fontSize: 12 }} onClick={() => recordBillAsExpense(bill)}>
+                            Log Expense
+                          </button>
+                        )}
+                        <button type="button" className="row-icon-btn del" onClick={() => deleteBill(bill.id)} aria-label={`Delete ${bill.title}`}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
-                    <input
-                      type="number"
-                      min="0"
-                      step="10"
-                      aria-label={`${cat} monthly budget`}
-                      value={limit}
-                      onChange={(e) => updateBudgetLimit(cat, e.target.value)}
-                      className="mono"
-                    />
-                  </div>
-                );
-              })}
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
+          {/* Custom Split & Tracker Sections (Dedicated to Budgets & Bills) */}
           <div className="card">
             <div className="card-head">
               <div>
-                <h2>Upcoming Bills</h2>
-                <span className="card-sub">
-                  {bills.filter((b) => !b.paid).length} unpaid ·{" "}
-                  <span className="num">
-                    {currencySymbol}
-                    {bills
-                      .filter((b) => !b.paid)
-                      .reduce((s, b) => s + Number(b.amount || 0), 0)
-                      .toFixed(2)}
-                  </span>{" "}
-                  due
-                </span>
+                <h3>Custom Tracker & Split Sections</h3>
+                <span className="card-sub">Organize roommate splits, trip costs, or side budgets with automatic per-person totals</span>
               </div>
             </div>
 
-            <form onSubmit={addBill} className="bill-form">
-              <input value={billTitle} onChange={(e) => setBillTitle(e.target.value)} placeholder="Bill name (e.g. Internet)" required />
-              <input type="number" step="0.01" value={billAmount} onChange={(e) => setBillAmount(e.target.value)} placeholder={currencySymbol} required />
-              <input type="date" value={billDue} onChange={(e) => setBillDue(e.target.value)} required />
+            <form onSubmit={addSection} className="section-create-form">
+              <input
+                value={newSectionTitle}
+                onChange={(e) => setNewSectionTitle(e.target.value)}
+                placeholder="New section name (e.g. Roommates, Weekend Trip)"
+                required
+              />
               <button type="submit">
                 <Plus size={15} />
-                <span>Add</span>
+                <span>Add Section</span>
               </button>
             </form>
 
-            {bills.length === 0 ? (
+            {sections.length === 0 ? (
               <div className="empty-state">
-                <p>Track recurring rent, utilities, and subscriptions to avoid missed due dates.</p>
+                <p>Create custom sections to track shared splits, side budgets, or group expenses.</p>
               </div>
             ) : (
-              <div>
-                {bills.map((bill) => (
-                  <div key={bill.id} className={`bill-row ${bill.paid ? "paid" : ""}`}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-                      <button
-                        type="button"
-                        className={`bill-check ${bill.paid ? "done" : ""}`}
-                        onClick={() => toggleBillPaid(bill)}
-                        aria-label={bill.paid ? `Mark ${bill.title} unpaid` : `Mark ${bill.title} paid`}
-                      >
-                        {bill.paid && <Check size={14} />}
-                      </button>
-                      <div style={{ minWidth: 0 }}>
-                        <strong className="bill-title" style={{ display: "block", fontSize: 14 }}>
-                          {bill.title}
-                        </strong>
-                        <span className="mono" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
-                          Due {bill.dueDate} · {bill.paid ? "Paid" : "Unpaid"}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="row-actions">
-                      <strong className="row-amount">
-                        {currencySymbol}
-                        {Number(bill.amount).toFixed(2)}
-                      </strong>
-                      {!bill.paid && (
-                        <button type="button" className="ghost-btn" style={{ minHeight: 34, padding: "4px 10px", fontSize: 12 }} onClick={() => recordBillAsExpense(bill)}>
-                          Log Expense
+              <div className="custom-section-list">
+                {sections.map((sec) => {
+                  const draft = sectionInputs[sec.id] || { name: "", amount: "", note: "" };
+                  const items = sec.items || [];
+                  const secSum = items.reduce((s, it) => s + Number(it.amount || 0), 0);
+                  const equalShare = items.length >= 2 ? secSum / items.length : null;
+                  return (
+                    <div key={sec.id} className="custom-section-block">
+                      <div className="custom-section-head">
+                        <h4>
+                          {sec.title}{" "}
+                          <span className="num" style={{ color: "var(--ink-dim)", fontWeight: 500, marginLeft: 6 }}>
+                            ({currencySymbol}
+                            {secSum.toFixed(2)})
+                          </span>
+                          {equalShare !== null && (
+                            <span className="num" style={{ color: "var(--accent)", fontWeight: 600, fontSize: 12, marginLeft: 10 }}>
+                              · Equal split: {currencySymbol}
+                              {equalShare.toFixed(2)} / person
+                            </span>
+                          )}
+                        </h4>
+                        <button type="button" className="row-icon-btn del" onClick={() => deleteSection(sec.id)} aria-label={`Delete section ${sec.title}`}>
+                          <Trash2 size={14} />
                         </button>
-                      )}
-                      <button type="button" className="row-icon-btn del" onClick={() => deleteBill(bill.id)} aria-label={`Delete ${bill.title}`}>
-                        <Trash2 size={14} />
-                      </button>
+                      </div>
+
+                      <form onSubmit={(e) => addSectionItem(e, sec.id)} className="section-item-form">
+                        <input
+                          value={draft.name}
+                          onChange={(e) => updateSectionDraft(sec.id, "name", e.target.value)}
+                          placeholder="Person or item"
+                          required
+                        />
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={draft.amount}
+                          onChange={(e) => updateSectionDraft(sec.id, "amount", e.target.value)}
+                          placeholder={currencySymbol}
+                        />
+                        <input
+                          value={draft.note}
+                          onChange={(e) => updateSectionDraft(sec.id, "note", e.target.value)}
+                          placeholder="Note"
+                        />
+                        <button type="submit" aria-label={`Add item to ${sec.title}`}>
+                          <Plus size={14} />
+                        </button>
+                      </form>
+
+                      {items.map((it) => (
+                        <div key={it.id} className="section-item-row">
+                          <div style={{ minWidth: 0 }}>
+                            <strong style={{ color: "var(--ink)" }}>{it.name}</strong>
+                            {it.note && <span style={{ color: "var(--ink-dim)", marginLeft: 8 }}>· {it.note}</span>}
+                          </div>
+                          <div className="row-actions">
+                            <span className="num">
+                              {currencySymbol}
+                              {Number(it.amount || 0).toFixed(2)}
+                            </span>
+                            <button type="button" className="row-icon-btn del" onClick={() => deleteSectionItem(sec.id, it.id)} aria-label={`Remove ${it.name}`}>
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* ==================== TAB 4: SETTINGS ==================== */}
-      {activeTab === "settings" && (
-        <div className="settings-grid">
-          <div className="card">
-            <div className="card-head">
-              <h2>Appearance & Display</h2>
-              <span className="card-sub">Theme and currency formatting</span>
-            </div>
-
-            <div className="field" style={{ marginBottom: 20 }}>
-              <label>Theme Mode</label>
-              <div className="segmented" style={{ width: "fit-content" }}>
-                {[
-                  { id: "auto", label: "Auto Solar" },
-                  { id: "light", label: "Light" },
-                  { id: "dark", label: "Dark" },
-                ].map((opt) => (
-                  <button key={opt.id} type="button" className={`seg-btn ${themeMode === opt.id ? "active" : ""}`} onClick={() => setThemeMode(opt.id)}>
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                {themeMode === "auto"
-                  ? "Follows sunrise and sunset at your local coordinates."
-                  : `Locked to ${themeMode === "dark" ? "Midnight Obsidian" : "Silver Pearl"} mode.`}
-              </span>
-            </div>
-
-            <div className="field">
-              <label>Currency Display</label>
-              <div style={{ position: "relative", maxWidth: 280 }}>
+      {/* ==================== TAB 4: INTERACTIVE CASHFLOW LAB ==================== */}
+      {activeTab === "lab" && (
+        <div key="lab" className="tab-stage">
+          <div className="sim-grid">
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <h2>
+                    <SlidersHorizontal size={16} style={{ verticalAlign: "-2px", marginRight: 6 }} />
+                    Cashflow Lab
+                  </h2>
+                  <span className="card-sub">Test spending cuts and savings boosts against your real ledger</span>
+                </div>
                 <button
                   type="button"
                   className="ghost-btn"
-                  onClick={() => setShowCurrencyDropdown(!showCurrencyDropdown)}
-                  style={{ width: "100%", justifyContent: "space-between" }}
+                  style={{ minHeight: 32, padding: "4px 10px", fontSize: 12 }}
+                  onClick={() => {
+                    setSimTrimPct(15);
+                    setSimExtraSave(0);
+                    setSimMonths(12);
+                  }}
                 >
-                  <span>
-                    {currencySymbol} {currency}
-                  </span>
-                  <span style={{ fontSize: 11 }}>{showCurrencyDropdown ? "▲" : "▼"}</span>
+                  <RotateCcw size={13} />
+                  <span>Reset</span>
                 </button>
-                {showCurrencyDropdown && (
-                  <div className="currency-dropdown">
-                    {CURRENCIES.map((c) => (
-                      <button
-                        key={c.code}
-                        type="button"
-                        className="currency-option"
-                        onClick={() => {
-                          setCurrency(c.code);
-                          setShowCurrencyDropdown(false);
-                        }}
-                      >
-                        <span>
-                          {c.symbol} {c.code}
-                        </span>
-                        <small style={{ color: "var(--ink-dim)" }}>{c.label}</small>
-                      </button>
-                    ))}
-                  </div>
-                )}
+              </div>
+
+              <div className="slider-field">
+                <div className="slider-head">
+                  <label htmlFor="sim-trim">Trim Flexible Spending</label>
+                  <span className="num">
+                    {simTrimPct}% (−{currencySymbol}
+                    {simMetrics.freedFromFlex.toFixed(0)}/mo)
+                  </span>
+                </div>
+                <input
+                  id="sim-trim"
+                  type="range"
+                  min="0"
+                  max="60"
+                  step="5"
+                  value={simTrimPct}
+                  onChange={(e) => setSimTrimPct(Number(e.target.value))}
+                />
+                <span className="card-sub" style={{ fontSize: 12 }}>
+                  Current flexible spend: {currencySymbol}
+                  {periodFlexTotal.toFixed(2)} / period
+                </span>
+              </div>
+
+              <div className="slider-field">
+                <div className="slider-head">
+                  <label htmlFor="sim-boost">Extra Monthly Boost</label>
+                  <span className="num">
+                    +{currencySymbol}
+                    {simExtraSave.toLocaleString()}/mo
+                  </span>
+                </div>
+                <input
+                  id="sim-boost"
+                  type="range"
+                  min="0"
+                  max="2000"
+                  step="25"
+                  value={simExtraSave}
+                  onChange={(e) => setSimExtraSave(Number(e.target.value))}
+                />
+              </div>
+
+              <div className="slider-field" style={{ marginBottom: 18 }}>
+                <div className="slider-head">
+                  <span>Projection Horizon</span>
+                  <span className="num">{simMonths} Months</span>
+                </div>
+                <div className="segmented" style={{ width: "fit-content" }}>
+                  {[6, 12, 24].map((m) => (
+                    <button key={m} type="button" className={`seg-btn ${simMonths === m ? "active" : ""}`} onClick={() => setSimMonths(m)}>
+                      {m} Mo
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="custom-section-block" style={{ paddingTop: 14 }}>
+                <div className="section-item-row" style={{ borderTop: "none" }}>
+                  <span>Current Net / Month</span>
+                  <strong className={`num ${simMetrics.baseNet < 0 ? "danger" : "good"}`}>
+                    {currencySymbol}
+                    {simMetrics.baseNet.toFixed(2)}
+                  </strong>
+                </div>
+                <div className="section-item-row">
+                  <span>Simulated Net / Month</span>
+                  <strong className={`num ${simMetrics.simNet < 0 ? "danger" : "good"}`}>
+                    {currencySymbol}
+                    {simMetrics.simNet.toFixed(2)}
+                  </strong>
+                </div>
+                <div className="section-item-row">
+                  <span>Monthly Boost Gained</span>
+                  <strong className="num" style={{ color: "var(--accent)" }}>
+                    +{currencySymbol}
+                    {simMetrics.gainPerMonth.toFixed(2)}
+                  </strong>
+                </div>
+                <div className="section-item-row">
+                  <span>Goal Runway ({currencySymbol}{savingsGoal})</span>
+                  <strong className="num">
+                    {savingsGoal <= 0
+                      ? "Set a Goal above"
+                      : simMetrics.simETA
+                        ? `${simMetrics.simETA} mo${simMetrics.baseETA && simMetrics.simETA < simMetrics.baseETA ? ` (${simMetrics.baseETA - simMetrics.simETA} mo faster)` : ""}`
+                        : "Increase net > 0"}
+                  </strong>
+                </div>
               </div>
             </div>
+
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <h3>Cumulative Savings Runway ({simMonths} Months)</h3>
+                  <span className="card-sub">
+                    Simulated{" "}
+                    <strong className={`num ${simMetrics.projectedSimulated < 0 ? "danger" : "good"}`}>
+                      {currencySymbol}
+                      {simMetrics.projectedSimulated.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </strong>{" "}
+                    vs Baseline{" "}
+                    <span className="num">
+                      {currencySymbol}
+                      {simMetrics.projectedBaseline.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </span>
+                  </span>
+                </div>
+              </div>
+
+              <ResponsiveContainer width="100%" height={330}>
+                <AreaChart data={simMetrics.series} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="simGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={darkMode ? "#38bdf8" : "#0284c7"} stopOpacity={0.35} />
+                      <stop offset="100%" stopColor={darkMode ? "#38bdf8" : "#0284c7"} stopOpacity={0.03} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                  <YAxis tickLine={false} axisLine={false} width={64} tickFormatter={(v) => `${currencySymbol}${v}`} />
+                  <Tooltip content={<ChartTooltip currencySymbol={currencySymbol} />} />
+                  <Area
+                    type="monotone"
+                    dataKey="Baseline"
+                    stroke={darkMode ? "#94a3b8" : "#64748b"}
+                    strokeDasharray="4 4"
+                    strokeWidth={2}
+                    fill="transparent"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="Simulated"
+                    stroke={darkMode ? "#38bdf8" : "#0284c7"}
+                    strokeWidth={2.5}
+                    fill="url(#simGrad)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           </div>
+        </div>
+      )}
 
-          <div className="card">
-            <div className="card-head">
-              <h2>Account & Data</h2>
-              <span className="card-sub">Export, import, and session management</span>
+      {/* ==================== TAB 5: SETTINGS ==================== */}
+      {activeTab === "settings" && (
+        <div key="settings" className="tab-stage">
+          <div className="settings-grid">
+            <div className="card">
+              <div className="card-head">
+                <h2>Appearance & Display</h2>
+                <span className="card-sub">Theme and currency formatting</span>
+              </div>
+
+              <div className="field" style={{ marginBottom: 20 }}>
+                <label>Theme Mode</label>
+                <div className="segmented" style={{ width: "fit-content" }}>
+                  {[
+                    { id: "auto", label: "Auto Solar" },
+                    { id: "light", label: "Light" },
+                    { id: "dark", label: "Dark" },
+                  ].map((opt) => (
+                    <button key={opt.id} type="button" className={`seg-btn ${themeMode === opt.id ? "active" : ""}`} onClick={() => setThemeMode(opt.id)}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
+                  {themeMode === "auto"
+                    ? "Follows sunrise and sunset at your local coordinates."
+                    : `Locked to ${themeMode === "dark" ? "Midnight Obsidian" : "Silver Pearl"} mode.`}
+                </span>
+              </div>
+
+              <div className="field">
+                <label>Currency Display</label>
+                <div style={{ position: "relative", maxWidth: 280 }}>
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() => setShowCurrencyDropdown(!showCurrencyDropdown)}
+                    style={{ width: "100%", justifyContent: "space-between" }}
+                  >
+                    <span>
+                      {currencySymbol} {currency}
+                    </span>
+                    <span style={{ fontSize: 11 }}>{showCurrencyDropdown ? "▲" : "▼"}</span>
+                  </button>
+                  {showCurrencyDropdown && (
+                    <div className="currency-dropdown">
+                      {CURRENCIES.map((c) => (
+                        <button
+                          key={c.code}
+                          type="button"
+                          className="currency-option"
+                          onClick={() => {
+                            setCurrency(c.code);
+                            setShowCurrencyDropdown(false);
+                          }}
+                        >
+                          <span>
+                            {c.symbol} {c.code}
+                          </span>
+                          <small style={{ color: "var(--ink-dim)" }}>{c.label}</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div className="field" style={{ marginBottom: 18 }}>
-              <label>Signed in as</label>
-              <div style={{ fontWeight: 600 }}>{user.email}</div>
-            </div>
+            <div className="card">
+              <div className="card-head">
+                <h2>Account & Data</h2>
+                <span className="card-sub">Export, import, and session management</span>
+              </div>
 
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button type="button" className="ghost-btn" onClick={exportCSV}>
-                <Download size={15} />
-                <span>Export CSV</span>
-              </button>
-              <button type="button" className="ghost-btn" onClick={backupJSON}>
-                <Download size={15} />
-                <span>Backup JSON</span>
-              </button>
-              <button type="button" className="danger-ghost-btn" onClick={signOut}>
-                <LogOut size={15} />
-                <span>Sign Out</span>
-              </button>
+              <div className="field" style={{ marginBottom: 18 }}>
+                <label>Signed in as</label>
+                <div style={{ fontWeight: 600 }}>{user.email}</div>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button type="button" className="ghost-btn" onClick={exportCSV}>
+                  <Download size={15} />
+                  <span>Export CSV</span>
+                </button>
+                <button type="button" className="ghost-btn" onClick={backupJSON}>
+                  <Download size={15} />
+                  <span>Backup JSON</span>
+                </button>
+                <button type="button" className="danger-ghost-btn" onClick={signOut}>
+                  <LogOut size={15} />
+                  <span>Sign Out</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2034,6 +2590,7 @@ export default function App() {
           </button>
         </div>
       )}
+      </div>
     </div>
   );
 }

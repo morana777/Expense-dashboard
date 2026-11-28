@@ -139,11 +139,16 @@ h1, h2, h3, h4 {
 /* --- APP WORKSPACE SHELL --- */
 .app {
   position: relative;
-  z-index: 10;
+  isolation: isolate;
   max-width: 1320px;
   margin: 0 auto;
   padding: 20px 24px 64px;
   min-height: 100vh;
+}
+
+.app-content {
+  position: relative;
+  z-index: 10;
 }
 
 .app.dark {
@@ -423,13 +428,32 @@ select:focus {
   font-variant-numeric: tabular-nums;
 }
 
-/* --- CARD SURFACE (SINGLE ELEVATION) --- */
+/* --- CARD SURFACE (SINGLE ELEVATION + SPECULAR TOP RIM) --- */
 .card {
   background: var(--surface);
   border: 1px solid var(--stroke);
   border-radius: var(--radius);
   padding: 20px;
-  box-shadow: var(--shadow);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), var(--shadow);
+}
+
+.app:not(.dark) .card {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), var(--shadow);
+}
+
+@keyframes tabReveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tab-stage {
+  animation: tabReveal 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .card-head {
@@ -598,6 +622,72 @@ select:focus {
   grid-template-columns: 130px 1.8fr 150px 140px auto;
   gap: 10px;
   align-items: center;
+}
+
+.cat-spotlight {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--stroke);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+/* --- FIXED VS FLEXIBLE RATIO BAR & SIMULATOR --- */
+.ratio-track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--stroke);
+  overflow: hidden;
+  display: flex;
+  margin: 10px 0 6px;
+}
+
+.ratio-fixed {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.ratio-flex {
+  height: 100%;
+  background: var(--good);
+  transition: width 0.25s ease;
+}
+
+.sim-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.slider-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.slider-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.slider-field input[type="range"] {
+  min-height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .form-error {
@@ -1227,6 +1317,20 @@ select:focus {
   color: var(--ink);
 }
 
+.login-guest {
+  width: 100%;
+  margin-top: 10px;
+  background: var(--surface-subtle);
+  border: 1px dashed var(--stroke-strong);
+  color: var(--ink-dim);
+}
+
+.login-guest:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
 .login-note {
   display: flex;
   gap: 7px;
@@ -1236,6 +1340,56 @@ select:focus {
   border-top: 1px solid var(--stroke);
   font-size: 12px;
   color: var(--ink-muted);
+}
+
+/* --- CUSTOM SPLIT / TRACKER SECTIONS --- */
+.section-create-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.custom-section-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.custom-section-block {
+  padding-top: 14px;
+  border-top: 1px solid var(--stroke);
+}
+
+.custom-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.custom-section-head h4 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.section-item-form {
+  display: grid;
+  grid-template-columns: 1.2fr 95px 1.2fr auto;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.section-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--stroke);
+  font-size: 13px;
 }
 
 /* --- RESPONSIVE BREAKPOINTS --- */
@@ -1249,6 +1403,7 @@ select:focus {
   .charts-grid,
   .overview-lower,
   .two-col-grid,
+  .sim-grid,
   .settings-grid {
     grid-template-columns: 1fr;
   }
@@ -1277,6 +1432,7 @@ select:focus {
   }
   .quick-form,
   .bill-form,
+  .section-item-form,
   .edit-inline {
     grid-template-columns: 1fr;
   }
@@ -1300,7 +1456,8 @@ select:focus {
   .login-brand .brand-mark {
     font-size: 21px;
   }
-  .stats-grid {
+  .stats-grid,
+  .pulse-strip {
     grid-template-columns: 1fr;
   }
   button,

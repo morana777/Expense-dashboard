@@ -300,7 +300,9 @@ const PARTICLE_FRAG = /* glsl */ `
 export default function ThreeBackground({ dark = true }) {
   const mountRef = useRef(null);
   const darkRef = useRef(dark);
-  darkRef.current = dark;
+  useEffect(() => {
+    darkRef.current = dark;
+  }, [dark]);
 
   useEffect(() => {
     const mount = mountRef.current;
