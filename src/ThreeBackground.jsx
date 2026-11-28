@@ -23,6 +23,18 @@ const _planeHit = new THREE.Vector3();
 const SWAN_COUNT = 10;
 const RIPPLE_COUNT = 8;
 const MAX_PARTICLES = 150;
+const WEATHER_PARTICLES = 260;
+
+const DEFAULT_WEATHER = {
+  rainIntensity: 0,
+  snowIntensity: 0,
+  windIntensity: 0.12,
+  windDirDeg: 250,
+  cloudIntensity: 0.15,
+  sunIntensity: 0.4,
+  fogIntensity: 0.1,
+  stormIntensity: 0,
+};
 
 function loadImage(url) {
   return new Promise((resolve, reject) => {
@@ -56,6 +68,14 @@ const LAKE_FRAG = /* glsl */ `
   uniform float uThemeMix;
   uniform float uGust;
   uniform vec2 uParallax;
+  uniform float uRain;
+  uniform float uSnow;
+  uniform float uWind;
+  uniform vec2 uWindDir;
+  uniform float uCloud;
+  uniform float uSun;
+  uniform float uFog;
+  uniform float uLightning;
   uniform vec4 uSwanUV[${SWAN_COUNT}];
   uniform vec2 uSwanDir[${SWAN_COUNT}];
   uniform vec4 uRipples[${RIPPLE_COUNT}];
@@ -114,12 +134,14 @@ const LAKE_FRAG = /* glsl */ `
     float depth = clamp((horizon - vUv.y) / horizon, 0.0, 1.0);
 
     float perspY = pow(max(0.02, 1.0 - depth), -0.65);
-    float w1 = sin(vUv.y * 58.0 + perspY * 6.0 - uTime * 1.05 + vUv.x * 9.5);
-    float w2 = cos(vUv.y * 116.0 - uTime * 1.38 - vUv.x * 16.0);
-    float w3 = sin(vUv.x * 24.0 + vUv.y * 172.0 - uTime * 1.85);
-    float organicWave = noise2(vec2(vUv.x * 16.0 - uTime * 0.25, vUv.y * 42.0 + uTime * 0.45)) - 0.5;
+    float windSpeed = 1.0 + uWind * 1.45;
+    vec2 windDrift = uWindDir * (uTime * (0.25 + uWind * 1.35));
+    float w1 = sin(vUv.y * (58.0 + uWind * 24.0) + perspY * 6.0 - uTime * 1.05 * windSpeed + vUv.x * 9.5 + windDrift.x * 0.45);
+    float w2 = cos(vUv.y * (116.0 + uWind * 36.0) - uTime * 1.38 * windSpeed - vUv.x * 16.0 - windDrift.y * 0.55);
+    float w3 = sin(vUv.x * 24.0 + vUv.y * 172.0 - uTime * 1.85 * windSpeed);
+    float organicWave = noise2(vec2(vUv.x * 16.0 - uTime * (0.25 + uWind * 0.65), vUv.y * 42.0 + uTime * 0.45)) - 0.5;
 
-    float rippleAmp = (0.00055 + 0.00175 * depth) * (1.0 + uGust * 0.6);
+    float rippleAmp = (0.00055 + 0.00175 * depth) * (1.0 + uGust * 0.6 + uWind * 1.85 + uRain * 0.35);
     vec2 waveOffset = vec2(
       (w1 * 0.45 + w2 * 0.32 + w3 * 0.15 + organicWave * 0.35) * rippleAmp * 1.35,
       (w2 * 0.45 + w3 * 0.35 + organicWave * 0.25) * rippleAmp * 0.36
@@ -183,6 +205,24 @@ const LAKE_FRAG = /* glsl */ `
       }
     }
 
+    // Procedural raindrop ring impacts across the lake surface
+    if (uRain > 0.03 && isWater > 0.05) {
+      vec2 rainGrid = vec2(vUv.x * scrAsp * 24.0, (horizon - vUv.y) * 44.0);
+      vec2 rCell = floor(rainGrid);
+      vec2 rLoc = fract(rainGrid) - 0.5;
+      float rSeed = hash12(rCell);
+      float dropPhase = fract(uTime * (1.35 + uRain * 0.85) + rSeed * 7.13);
+      if (rSeed < 0.32 + uRain * 0.52) {
+        vec2 dropOff = vec2(hash12(rCell + 3.1) - 0.5, hash12(rCell + 9.7) - 0.5) * 0.42;
+        float rDist = length(rLoc - dropOff);
+        float rRad = dropPhase * 0.42;
+        float rRing = exp(-pow((rDist - rRad) / 0.055, 2.0)) * (1.0 - dropPhase) * smoothstep(0.0, 0.08, dropPhase);
+        float rOsc = sin((rDist - rRad) * 46.0) * rRing * uRain;
+        waveOffset += normalize(rLoc - dropOff + vec2(0.0001)) * rOsc * 0.0018 * (0.35 + 0.65 * depth);
+        wakeLight += max(0.0, rOsc) * (0.14 + 0.16 * uThemeMix);
+      }
+    }
+
     vec2 finalUv = clamp(baseUv + waveOffset * isWater, 0.002, 0.998);
     vec2 px = 1.0 / uTexSize;
     vec3 c0 = texture2D(uLakeTex, finalUv).rgb;
@@ -207,20 +247,107 @@ const LAKE_FRAG = /* glsl */ `
 
     vec3 col = mix(nightLake, dayLake, uThemeMix);
 
-    float mistBand = exp(-pow((vUv.y - 0.80) / 0.11, 2.0));
-    float mistTex = fbmMist(vec2(vUv.x * 3.8 + uTime * 0.016, vUv.y * 6.5 - uTime * 0.008));
+    // Atmospheric tinting for overcast clouds, rain/storm cooling, and snowfall frost
+    float weatherDim = clamp(uCloud * 0.24 + uRain * 0.26, 0.0, 0.42);
+    vec3 coolAtmosphere = mix(vec3(0.06, 0.085, 0.13), vec3(0.56, 0.62, 0.70), uThemeMix);
+    col = mix(col, coolAtmosphere, weatherDim * (0.45 + 0.55 * (1.0 - depth * 0.45)));
+
+    // Snow cold frost shimmer
+    if (uSnow > 0.02) {
+      vec3 frostTint = mix(vec3(0.24, 0.30, 0.38), vec3(0.86, 0.90, 0.95), uThemeMix);
+      col = mix(col, frostTint, uSnow * 0.20 * (1.0 - depth * 0.35));
+    }
+
+    // Horizon mist amplified by fog, rain, and snow
+    float mistBand = exp(-pow((vUv.y - 0.80) / (0.11 + uFog * 0.14 + uSnow * 0.06), 2.0));
+    float mistTex = fbmMist(vec2(vUv.x * 3.8 + uTime * (0.016 + uWind * 0.045), vUv.y * 6.5 - uTime * 0.008));
     vec3 mistTint = mix(vec3(0.16, 0.20, 0.27), vec3(0.84, 0.87, 0.91), uThemeMix);
-    col = mix(col, mistTint, mistBand * mistTex * mix(0.26, 0.34, uThemeMix));
+    float mistMix = clamp(mix(0.26, 0.34, uThemeMix) + uFog * 0.38 + uRain * 0.16 + uSnow * 0.18, 0.0, 0.85);
+    col = mix(col, mistTint, mistBand * mistTex * mistMix);
+
+    // Sunny sky reflection & golden/silver water shimmer path
+    if (uSun > 0.02) {
+      float sunColMask = exp(-pow((vUv.x - 0.58) / (0.16 + (1.0 - depth) * 0.08), 2.0));
+      float waveSparkle = pow(max(0.0, w1 * 0.5 + w2 * 0.35 + organicWave * 0.35), 4.0);
+      vec3 sunWarm = mix(vec3(0.88, 0.86, 0.78), vec3(1.0, 0.96, 0.86), uThemeMix);
+      col += sunWarm * (uSun * sunColMask * isWater * waveSparkle * 0.18 * (0.35 + 0.65 * depth));
+      col += sunWarm * (uSun * smoothstep(0.70, 0.99, vUv.y) * sunColMask * 0.12);
+    }
 
     vec3 specTint = mix(vec3(0.60, 0.67, 0.78), vec3(0.96, 0.98, 1.0), uThemeMix);
-    float crest = smoothstep(0.54, 0.96, w1 * 0.48 + w2 * 0.38 + organicWave * 0.45) * isWater * (0.18 + 0.82 * depth);
-    col += specTint * (crest * mix(0.022, 0.032, uThemeMix) + wakeLight * mix(0.75, 1.0, uThemeMix));
+    float crest = smoothstep(0.54 - uWind * 0.12, 0.96, w1 * 0.48 + w2 * 0.38 + organicWave * 0.45) * isWater * (0.18 + 0.82 * depth);
+    col += specTint * (crest * (mix(0.022, 0.032, uThemeMix) + uWind * 0.055) + wakeLight * mix(0.75, 1.0, uThemeMix));
     col *= (1.0 - wakeShadow * mix(0.5, 0.9, uThemeMix));
+
+    // Storm lightning flash on clouds & water crests
+    if (uLightning > 0.005) {
+      float skyFlash = smoothstep(0.45, 0.98, vUv.y) * 0.55 + crest * 0.65;
+      col += vec3(0.78, 0.86, 1.0) * uLightning * (0.20 + skyFlash);
+    }
 
     float grain = (hash12(gl_FragCoord.xy + fract(uTime * 19.3) * 120.0) - 0.5) * 0.010;
     col = clamp(col + grain, 0.0, 1.0);
 
     gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+// Dedicated atmospheric precipitation & wind spray shader (rain streaks, snowflakes, wind mist)
+const WEATHER_VERT = /* glsl */ `
+  attribute float aSize;
+  attribute float aAlpha;
+  attribute float aKind;
+  attribute float aTilt;
+  uniform float uDpr;
+  varying float vAlpha;
+  varying float vKind;
+  varying float vTilt;
+
+  void main() {
+    vAlpha = aAlpha;
+    vKind = aKind;
+    vTilt = aTilt;
+    vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = aSize * uDpr * (10.0 / max(1.5, -mvPos.z));
+    gl_Position = projectionMatrix * mvPos;
+  }
+`;
+
+const WEATHER_FRAG = /* glsl */ `
+  uniform float uThemeMix;
+  varying float vAlpha;
+  varying float vKind;
+  varying float vTilt;
+
+  void main() {
+    if (vAlpha <= 0.005) discard;
+    vec2 p = gl_PointCoord - 0.5;
+
+    if (vKind < 0.5) {
+      // Rain streak rotated along fall/wind vector
+      float c = cos(vTilt);
+      float s = sin(vTilt);
+      vec2 rp = vec2(p.x * c - p.y * s, p.x * s + p.y * c);
+      float line = exp(-abs(rp.x) * 26.0) * smoothstep(0.49, 0.06, abs(rp.y));
+      if (line < 0.02) discard;
+      vec3 col = mix(vec3(0.62, 0.74, 0.90), vec3(0.86, 0.92, 0.98), uThemeMix);
+      gl_FragColor = vec4(col, line * vAlpha);
+    } else if (vKind < 1.5) {
+      // Soft fluttering snowflake crystal
+      float r = length(p);
+      float ang = atan(p.y, p.x);
+      float crystal = 1.0 + 0.12 * cos(ang * 6.0);
+      float core = smoothstep(0.46, 0.08, r * crystal);
+      if (core < 0.02) discard;
+      vec3 col = mix(vec3(0.80, 0.87, 0.96), vec3(0.98, 0.99, 1.0), uThemeMix);
+      gl_FragColor = vec4(col, core * vAlpha);
+    } else {
+      // Wind-driven horizontal mist / spray wisp
+      float wisp = exp(-(p.x * p.x * 5.0 + p.y * p.y * 28.0));
+      if (wisp < 0.02) discard;
+      vec3 col = mix(vec3(0.55, 0.65, 0.78), vec3(0.92, 0.95, 0.99), uThemeMix);
+      gl_FragColor = vec4(col, wisp * vAlpha);
+    }
   }
 `;
 
@@ -297,12 +424,16 @@ const PARTICLE_FRAG = /* glsl */ `
   }
 `;
 
-export default function ThreeBackground({ dark = true }) {
+export default function ThreeBackground({ dark = true, weather = DEFAULT_WEATHER }) {
   const mountRef = useRef(null);
   const darkRef = useRef(dark);
+  const weatherRef = useRef(weather || DEFAULT_WEATHER);
   useEffect(() => {
     darkRef.current = dark;
   }, [dark]);
+  useEffect(() => {
+    weatherRef.current = weather || DEFAULT_WEATHER;
+  }, [weather]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -325,6 +456,7 @@ export default function ThreeBackground({ dark = true }) {
       }
     })();
 
+    const initW = weatherRef.current || DEFAULT_WEATHER;
     const state = {
       px: 0,
       py: 0,
@@ -334,6 +466,16 @@ export default function ThreeBackground({ dark = true }) {
       scrollTarget: 0,
       gust: 0,
       themeMix: darkRef.current ? 0 : 1,
+      rain: initW.rainIntensity || 0,
+      snow: initW.snowIntensity || 0,
+      wind: initW.windIntensity || 0,
+      windDirDeg: initW.windDirDeg ?? 250,
+      cloud: initW.cloudIntensity || 0,
+      sun: initW.sunIntensity || 0,
+      fog: initW.fogIntensity || 0,
+      storm: initW.stormIntensity || 0,
+      lightning: 0,
+      nextLightningAt: 3.5,
       t: 0,
       isDraggingWater: false,
       lastTrailAt: 0,
@@ -392,6 +534,14 @@ export default function ThreeBackground({ dark = true }) {
       uThemeMix: { value: state.themeMix },
       uGust: { value: 0 },
       uParallax: { value: new THREE.Vector2(0, 0) },
+      uRain: { value: state.rain },
+      uSnow: { value: state.snow },
+      uWind: { value: state.wind },
+      uWindDir: { value: new THREE.Vector2(1, 0) },
+      uCloud: { value: state.cloud },
+      uSun: { value: state.sun },
+      uFog: { value: state.fog },
+      uLightning: { value: 0 },
       uSwanUV: { value: Array.from({ length: SWAN_COUNT }, () => new THREE.Vector4()) },
       uSwanDir: { value: Array.from({ length: SWAN_COUNT }, () => new THREE.Vector2(1, 0)) },
       uRipples: { value: Array.from({ length: RIPPLE_COUNT }, () => new THREE.Vector4()) },
@@ -464,6 +614,51 @@ export default function ThreeBackground({ dark = true }) {
     particlePoints.frustumCulled = false;
     particlePoints.renderOrder = 2000;
     scene.add(particlePoints);
+
+    // Pre-allocated atmospheric weather particle system (rain streaks, snowflakes, wind spray)
+    const wPos = new Float32Array(WEATHER_PARTICLES * 3);
+    const wSize = new Float32Array(WEATHER_PARTICLES);
+    const wAlpha = new Float32Array(WEATHER_PARTICLES);
+    const wKind = new Float32Array(WEATHER_PARTICLES);
+    const wTilt = new Float32Array(WEATHER_PARTICLES);
+    const wSeed = new Float32Array(WEATHER_PARTICLES);
+    for (let k = 0; k < WEATHER_PARTICLES; k++) {
+      wSeed[k] = Math.random() * 100;
+      wPos[k * 3] = (Math.random() - 0.5) * 26;
+      wPos[k * 3 + 1] = Math.random() * 8.5;
+      wPos[k * 3 + 2] = -2.5 - Math.random() * 21;
+      wSize[k] = 14;
+      wAlpha[k] = 0;
+    }
+    const wGeo = track(new THREE.BufferGeometry());
+    const wPosAttr = new THREE.BufferAttribute(wPos, 3);
+    const wSizeAttr = new THREE.BufferAttribute(wSize, 1);
+    const wAlphaAttr = new THREE.BufferAttribute(wAlpha, 1);
+    const wKindAttr = new THREE.BufferAttribute(wKind, 1);
+    const wTiltAttr = new THREE.BufferAttribute(wTilt, 1);
+    wGeo.setAttribute("position", wPosAttr);
+    wGeo.setAttribute("aSize", wSizeAttr);
+    wGeo.setAttribute("aAlpha", wAlphaAttr);
+    wGeo.setAttribute("aKind", wKindAttr);
+    wGeo.setAttribute("aTilt", wTiltAttr);
+
+    const wUniforms = {
+      uDpr: { value: getDpr() },
+      uThemeMix: { value: state.themeMix },
+    };
+    const wMat = track(
+      new THREE.ShaderMaterial({
+        uniforms: wUniforms,
+        vertexShader: WEATHER_VERT,
+        fragmentShader: WEATHER_FRAG,
+        transparent: true,
+        depthWrite: false,
+      })
+    );
+    const weatherPoints = new THREE.Points(wGeo, wMat);
+    weatherPoints.frustumCulled = false;
+    weatherPoints.renderOrder = 2100;
+    scene.add(weatherPoints);
 
     const spawnRippleAtUv = (uvX, uvY, strength = 0.95, dur = 2.1) => {
       if (uvY > 0.815 || uvY < 0.0 || uvX < 0.0 || uvX > 1.0) return;
@@ -923,6 +1118,7 @@ export default function ThreeBackground({ dark = true }) {
       renderer.setSize(w, h);
       lakeUniforms.uResolution.value.set(w, h);
       pUniforms.uDpr.value = dpr;
+      wUniforms.uDpr.value = dpr;
       readScroll();
     };
     window.addEventListener("resize", onResize);
@@ -962,11 +1158,40 @@ export default function ThreeBackground({ dark = true }) {
 
       const camLerp = 1 - Math.exp(-2.8 * rawDt);
       const themeLerp = 1 - Math.exp(-4.0 * rawDt);
+      const weatherLerp = 1 - Math.exp(-1.6 * rawDt);
+      const targetW = weatherRef.current || DEFAULT_WEATHER;
+
       state.px += (state.tx - state.px) * camLerp;
       state.py += (state.ty - state.py) * camLerp;
       state.scrollP += (state.scrollTarget - state.scrollP) * camLerp;
       state.themeMix += ((darkRef.current ? 0 : 1) - state.themeMix) * themeLerp;
       state.gust = Math.max(0, state.gust - rawDt * 0.75);
+
+      state.rain += ((targetW.rainIntensity || 0) - state.rain) * weatherLerp;
+      state.snow += ((targetW.snowIntensity || 0) - state.snow) * weatherLerp;
+      state.wind += ((targetW.windIntensity || 0) - state.wind) * weatherLerp;
+      state.cloud += ((targetW.cloudIntensity || 0) - state.cloud) * weatherLerp;
+      state.sun += ((targetW.sunIntensity || 0) - state.sun) * weatherLerp;
+      state.fog += ((targetW.fogIntensity || 0) - state.fog) * weatherLerp;
+      state.storm += ((targetW.stormIntensity || 0) - state.storm) * weatherLerp;
+
+      const windRad = (((targetW.windDirDeg ?? 250) + 180) * Math.PI) / 180;
+      const windVecX = Math.sin(windRad);
+      const windVecZ = Math.cos(windRad);
+
+      if (state.storm > 0.25) {
+        state.nextLightningAt -= rawDt;
+        if (state.nextLightningAt <= 0) {
+          state.lightning = 0.85 + Math.random() * 0.35;
+          state.nextLightningAt = 3.2 + Math.random() * 6.5;
+          for (let j = 0; j < swans.length; j++) {
+            if (Math.random() < 0.65 && swans[j].feedState === "none") {
+              swans[j].alertTimer = 1.2;
+            }
+          }
+        }
+      }
+      state.lightning = Math.max(0, state.lightning - rawDt * 4.5);
 
       const mixVal = state.themeMix;
 
@@ -978,7 +1203,16 @@ export default function ThreeBackground({ dark = true }) {
       lakeUniforms.uThemeMix.value = mixVal;
       lakeUniforms.uGust.value = state.gust;
       lakeUniforms.uParallax.value.set(swayX, swayY);
+      lakeUniforms.uRain.value = state.rain;
+      lakeUniforms.uSnow.value = state.snow;
+      lakeUniforms.uWind.value = state.wind;
+      lakeUniforms.uWindDir.value.set(windVecX, windVecZ);
+      lakeUniforms.uCloud.value = state.cloud;
+      lakeUniforms.uSun.value = state.sun;
+      lakeUniforms.uFog.value = state.fog;
+      lakeUniforms.uLightning.value = state.lightning;
       pUniforms.uThemeMix.value = mixVal;
+      wUniforms.uThemeMix.value = mixVal;
 
       for (let k = 0; k < RIPPLE_COUNT; k++) {
         const r = ripples[k];
@@ -996,6 +1230,85 @@ export default function ThreeBackground({ dark = true }) {
       camera.position.set(swayX, curCamY, 0);
       camera.lookAt(swayX * 0.72, curCamY + getLookDy(camera.fov), -10);
       camera.updateMatrixWorld();
+
+      // Update atmospheric precipitation & wind spray particles
+      const activeWeatherMode =
+        state.snow > 0.06
+          ? 1
+          : state.rain > 0.04
+            ? 0
+            : state.wind > 0.25
+              ? 2
+              : -1;
+      const weatherDensity =
+        activeWeatherMode === 1
+          ? Math.round(WEATHER_PARTICLES * (0.28 + state.snow * 0.72))
+          : activeWeatherMode === 0
+            ? Math.round(WEATHER_PARTICLES * (0.35 + state.rain * 0.65))
+            : activeWeatherMode === 2
+              ? Math.round(WEATHER_PARTICLES * (0.20 + state.wind * 0.45))
+              : 0;
+
+      for (let k = 0; k < WEATHER_PARTICLES; k++) {
+        const i3 = k * 3;
+        if (k >= weatherDensity || activeWeatherMode < 0) {
+          wAlpha[k] = 0;
+          continue;
+        }
+        wKind[k] = activeWeatherMode;
+        if (activeWeatherMode === 0) {
+          // Rain streaks slanted by local wind
+          const fallSpeed = 12.5 + state.rain * 6.5 + (wSeed[k] % 3.5);
+          const vx = windVecX * (1.2 + state.wind * 4.8);
+          const vz = windVecZ * (0.5 + state.wind * 1.6);
+          wPos[i3] += vx * rawDt;
+          wPos[i3 + 1] -= fallSpeed * rawDt;
+          wPos[i3 + 2] += vz * rawDt;
+          wSize[k] = 16.0 + state.rain * 10.0;
+          wTilt[k] = Math.atan2(vx, fallSpeed);
+          wAlpha[k] = (0.30 + state.rain * 0.36) * Math.min(1, wPos[i3 + 1] * 2.5);
+          if (wPos[i3 + 1] <= 0.02) {
+            if (Math.random() < 0.05 + state.rain * 0.07) {
+              spawnParticle(0, wPos[i3], 0.03, wPos[i3 + 2], (Math.random() - 0.5) * 0.4, 0.8 + Math.random() * 0.5, 0, 3.8, 0.38, 1.0);
+            }
+            wPos[i3] = (Math.random() - 0.5) * 26 - windVecX * 2.5;
+            wPos[i3 + 1] = 6.5 + Math.random() * 2.5;
+            wPos[i3 + 2] = -2.5 - Math.random() * 20;
+          }
+        } else if (activeWeatherMode === 1) {
+          // Drifting snowfall pushed gently by wind + flutter
+          const fallSpeed = 0.85 + state.snow * 0.65 + (wSeed[k] % 0.4);
+          const flutter = Math.sin(t * 1.8 + wSeed[k]) * 0.55;
+          wPos[i3] += (windVecX * (0.45 + state.wind * 2.2) + flutter) * rawDt;
+          wPos[i3 + 1] -= fallSpeed * rawDt;
+          wPos[i3 + 2] += windVecZ * (0.25 + state.wind * 0.8) * rawDt;
+          wSize[k] = 7.5 + (wSeed[k] % 6.5);
+          wTilt[k] = 0;
+          wAlpha[k] = (0.45 + state.snow * 0.42) * Math.min(1, wPos[i3 + 1] * 2.2);
+          if (wPos[i3 + 1] <= 0.02) {
+            wPos[i3] = (Math.random() - 0.5) * 26 - windVecX * 2.0;
+            wPos[i3 + 1] = 6.0 + Math.random() * 2.5;
+            wPos[i3 + 2] = -2.5 - Math.random() * 20;
+          }
+        } else {
+          // Windy lake mist / spray skimming low above the water
+          wPos[i3] += windVecX * (2.6 + state.wind * 4.4) * rawDt;
+          wPos[i3 + 1] = 0.14 + Math.abs(Math.sin(t * 1.4 + wSeed[k])) * 0.75;
+          wPos[i3 + 2] += windVecZ * (0.9 + state.wind * 1.4) * rawDt;
+          wSize[k] = 22.0 + (wSeed[k] % 14.0);
+          wTilt[k] = 0;
+          wAlpha[k] = 0.12 + state.wind * 0.18;
+          if (Math.abs(wPos[i3]) > 14 || wPos[i3 + 2] > -2.0 || wPos[i3 + 2] < -24) {
+            wPos[i3] = -Math.sign(windVecX || 1) * (10 + Math.random() * 4);
+            wPos[i3 + 2] = -3.0 - Math.random() * 19;
+          }
+        }
+      }
+      wPosAttr.needsUpdate = true;
+      wSizeAttr.needsUpdate = true;
+      wAlphaAttr.needsUpdate = true;
+      wKindAttr.needsUpdate = true;
+      wTiltAttr.needsUpdate = true;
 
       // Update particles (droplets, floating feathers, feeding crumbs)
       for (let k = 0; k < MAX_PARTICLES; k++) {
@@ -1174,16 +1487,18 @@ export default function ThreeBackground({ dark = true }) {
             s.feedState = "none";
           }
         } else {
-          // Autonomous 3D curved lake patrol + rich swimming behaviors (cruise, busk, preen, dabble, wing-stretch)
+          // Autonomous 3D curved lake patrol + rich swimming behaviors shaped by live local weather
           s.moodTimer -= dt;
           if (s.moodTimer <= 0) {
             if (s.swimMood === "cruise") {
               const r = (i * 0.37 + t * 0.19) % 1;
-              if (r < 0.36) {
+              // Rain & snow lower wing-stretch frequency; sunny weather encourages busking & preening
+              const stretchChance = state.rain > 0.2 || state.snow > 0.2 ? 0.12 : 0.28;
+              if (r < 0.38) {
                 s.swimMood = "preen";
                 s.moodDuration = 3.8 + (i % 3) * 0.6;
                 s.preenSide = -s.preenSide;
-              } else if (r < 0.72) {
+              } else if (r < 1.0 - stretchChance) {
                 s.swimMood = "dabble";
                 s.moodDuration = 3.4 + (i % 3) * 0.5;
               } else {
@@ -1199,18 +1514,29 @@ export default function ThreeBackground({ dark = true }) {
           }
 
           s.isGrazing = s.swimMood === "dabble";
-          // Advance lane progression only while cruising so preen/dabble/stretch never spin in place
-          const laneStepRate = s.swimMood === "cruise" ? 1.0 + s.speedBoost * 0.6 : 0.0;
+          // Advance lane progression only while cruising; slow glide in snow/rain
+          const weatherPace = Math.max(0.55, 1.0 - state.snow * 0.35 - state.rain * 0.22 + state.sun * 0.08);
+          const laneStepRate = s.swimMood === "cruise" ? (1.0 + s.speedBoost * 0.6) * weatherPace : 0.0;
           s.orbitPhase += s.orbitFreq * dt * laneStepRate;
           const leadPhase = s.orbitPhase + Math.sign(s.orbitFreq) * 0.16;
-          const wpX = s.homeX * aspectFactor + Math.cos(leadPhase) * s.rx * aspectFactor;
-          const wpZ = s.homeZ + Math.sin(leadPhase) * s.rz;
+          // In rain/snow, swans gently huddle slightly closer toward sheltered center
+          const shelterScale = 1.0 - Math.min(0.22, state.rain * 0.14 + state.snow * 0.16);
+          const wpX = s.homeX * aspectFactor * shelterScale + Math.cos(leadPhase) * s.rx * aspectFactor * shelterScale;
+          const wpZ = s.homeZ + Math.sin(leadPhase) * s.rz * shelterScale;
 
           const tanX = -Math.sin(s.orbitPhase) * s.rx * aspectFactor * s.orbitFreq;
           const tanZ = Math.cos(s.orbitPhase) * s.rz * s.orbitFreq;
           const tanLen = Math.hypot(tanX, tanZ) || 1;
           let steerX = tanX / tanLen + (wpX - s.x) * 0.24;
           let steerZ = tanZ / tanLen + (wpZ - s.z) * 0.24;
+
+          // Strong wind causes waterfowl to gently angle/weathervane toward upwind direction
+          if (state.wind > 0.35) {
+            const upwindInfluence = (state.wind - 0.35) * 0.72;
+            steerX -= windVecX * upwindInfluence;
+            steerZ -= windVecZ * upwindInfluence;
+          }
+
           let nearestMateAngle = 0;
           let hasNearbyMate = false;
 
@@ -1231,7 +1557,6 @@ export default function ThreeBackground({ dark = true }) {
             if (distSq < 5.0 && distSq > 0.001) {
               const dist = Math.sqrt(distSq);
               const push = ((2.24 - dist) / 2.24) * 0.65;
-              // Deflect laterally around nearby swans rather than spinning backward
               const fwdX = Math.sin(s.heading);
               const fwdZ = Math.cos(s.heading);
               const sideX = fwdZ;
@@ -1258,18 +1583,24 @@ export default function ThreeBackground({ dark = true }) {
           const paddlePulse = 1.0 + 0.24 * paddleStroke;
           const speedScale =
             s.swimMood === "cruise"
-              ? paddlePulse
+              ? paddlePulse * weatherPace
               : s.swimMood === "dabble"
-                ? 0.26
+                ? 0.26 * weatherPace
                 : 0.14;
           curSpeed = (s.speed * speedScale + s.speedBoost) * (0.8 + 0.2 * Math.max(0, Math.cos(headingErr)));
-          s.x += Math.sin(s.heading) * curSpeed * dt;
-          s.z += Math.cos(s.heading) * curSpeed * dt;
+          // Subtle lateral wind drift across water surface
+          const windDriftAmt = state.wind * 0.11;
+          s.x += (Math.sin(s.heading) * curSpeed + windVecX * windDriftAmt) * dt;
+          s.z += (Math.cos(s.heading) * curSpeed + windVecZ * windDriftAmt * 0.35) * dt;
 
           const reactNorm = s.reactTimer > 0 ? Math.sin(Math.min(1, s.reactTimer / 2.6) * Math.PI) : 0;
           const rouseBurst = s.reactTimer > 0.7 ? Math.sin(Math.min(1, (s.reactTimer - 0.7) / 1.9) * Math.PI) : 0;
           const tailBurst = s.reactTimer > 0 && s.reactTimer < 1.3 ? Math.sin(t * 28.0 + s.phase) * (s.reactTimer / 1.3) : 0;
           const alertLift = s.alertTimer > 0 ? Math.sin((s.alertTimer / 1.6) * Math.PI) * 0.14 : 0;
+          // Periodic waterproof rain shake & cold/wind feather tuck
+          const rainShakeCycle = Math.max(0, Math.sin(t * 0.9 + s.phase * 1.9) - 0.88) / 0.12;
+          const rainShake = state.rain * rainShakeCycle;
+          const wingShelterFactor = Math.max(0.18, 1.0 - state.rain * 0.62 - state.snow * 0.72 - state.wind * 0.55);
 
           if (s.reactTimer > 0) {
             targetNeckDip = -0.22 * reactNorm + Math.sin(s.reactTimer * 5.0) * 0.10;
@@ -1284,9 +1615,9 @@ export default function ThreeBackground({ dark = true }) {
             const ease = Math.sin(pFrac * Math.PI);
             targetNeckDip = 0.26 * ease + Math.sin(t * 10.5 + s.phase) * 0.09 * ease;
             targetNeckTurn = s.preenSide * 0.88 * ease + Math.sin(t * 7.8 + s.phase) * 0.16 * ease;
-            targetWingSpread = 0.66 * ease;
-            targetRouse = Math.max(0, Math.sin(t * 9.0 + s.phase)) * 0.24 * ease;
-            targetTailWag = Math.sin(t * 15.0 + s.phase) * 0.30 * ease;
+            targetWingSpread = 0.66 * ease * wingShelterFactor;
+            targetRouse = Math.max(0, Math.sin(t * 9.0 + s.phase)) * 0.24 * ease + rainShake * 0.35;
+            targetTailWag = Math.sin(t * 15.0 + s.phase) * 0.30 * ease + Math.sin(t * 26.0 + s.phase) * 0.28 * rainShake;
             targetChest = 0.04 * ease;
             feedWakeBoost = 0.22 * ease;
           } else if (s.swimMood === "dabble") {
@@ -1315,7 +1646,7 @@ export default function ThreeBackground({ dark = true }) {
             const flapBeat = Math.max(0, Math.sin(pFrac * Math.PI * 3.0));
             targetNeckDip = -0.20 * archEnv;
             targetNeckTurn = Math.sin(pFrac * Math.PI * 2.0) * 0.15;
-            targetWingSpread = 0.96 * archEnv;
+            targetWingSpread = 0.96 * archEnv * (0.45 + 0.55 * wingShelterFactor);
             targetRouse = 0.72 * archEnv * flapBeat;
             targetChest = 0.22 * archEnv;
             targetTailWag = pFrac > 0.72 ? Math.sin(t * 24.0 + s.phase) * 0.45 : 0;
@@ -1327,15 +1658,18 @@ export default function ThreeBackground({ dark = true }) {
               spawnSplashParticles(s.x, s.z, 7, 0.65);
             }
           } else {
-            // Cruise: rhythmic paddling chest pitch, busking wing shields & social/mate glances
-            targetNeckDip = -alertLift + paddleStroke * 0.032;
+            // Cruise: sheltered neck tuck in rain/snow, busking shields in warm sun, waterproof shake in rain
+            const weatherNeckTuck = state.rain * 0.18 + state.snow * 0.22 + state.wind * 0.10 - state.sun * 0.06;
+            const sunBusk = state.sun * 0.24;
+            targetNeckDip = -alertLift + paddleStroke * 0.032 + weatherNeckTuck;
             targetNeckTurn = hasNearbyMate
               ? nearestMateAngle + Math.sin(t * 0.7 + s.phase) * 0.12
-              : headingErr * 0.42 + Math.sin(t * 0.72 + s.phase) * 0.28;
-            targetWingSpread = (hasNearbyMate ? 0.46 : 0.14) + Math.max(0, Math.sin(t * 0.55 + s.phase * 2.1) - 0.35) * 0.42;
-            targetTailWag = Math.sin(t * 2.1 + s.phase) * 0.09;
-            targetChest = Math.max(0, paddleStroke) * 0.045 + (hasNearbyMate ? 0.05 : 0);
-            feedWakeBoost = Math.max(0, paddleStroke) * 0.18;
+              : headingErr * 0.42 + Math.sin(t * 0.72 + s.phase) * 0.28 * (1.0 - state.snow * 0.45);
+            targetWingSpread = ((hasNearbyMate ? 0.46 : 0.14) + sunBusk + Math.max(0, Math.sin(t * 0.55 + s.phase * 2.1) - 0.35) * 0.42) * wingShelterFactor;
+            targetRouse = rainShake * 0.55;
+            targetTailWag = Math.sin(t * 2.1 + s.phase) * 0.09 + Math.sin(t * 24.0 + s.phase) * 0.35 * rainShake;
+            targetChest = Math.max(0, paddleStroke) * 0.045 + (hasNearbyMate ? 0.05 : 0) + state.sun * 0.05;
+            feedWakeBoost = Math.max(0, paddleStroke) * 0.18 + rainShake * 0.28;
           }
         }
 
@@ -1348,10 +1682,13 @@ export default function ThreeBackground({ dark = true }) {
         s.chestLift += (targetChest - s.chestLift) * (1 - Math.exp(-7.0 * dt));
         s.hoverGlow += ((state.hoveredIdx === s.idx || s.reactTimer > 0 || s.feedState !== "none" ? 1 : 0) - s.hoverGlow) * (1 - Math.exp(-6.0 * dt));
 
-        // Drive 3D Photo-Inflated Swan Uniforms & Waterline Transforms
-        const bob = Math.sin(t * 1.75 + s.phase) * 0.015 + Math.sin(t * 11.0 + s.phase) * 0.022 * s.wingRouse;
-        const roll = THREE.MathUtils.clamp(-s.yawRate * 0.06, -0.09, 0.09) + Math.sin(t * 1.65 + s.phase) * 0.022;
-        const pitch = -s.chestLift * 0.24 + Math.cos(t * 2.1 + s.phase) * 0.014;
+        // Drive 3D Photo-Inflated Swan Uniforms & Waterline Transforms amplified by wind wave chop
+        const waveFreq = 1.75 + state.wind * 1.45;
+        const waveBobAmp = 0.015 + state.wind * 0.044;
+        const waveRollAmp = 0.022 + state.wind * 0.062;
+        const bob = Math.sin(t * waveFreq + s.phase) * waveBobAmp + Math.sin(t * 11.0 + s.phase) * 0.022 * s.wingRouse;
+        const roll = THREE.MathUtils.clamp(-s.yawRate * 0.06, -0.09, 0.09) + Math.sin(t * (1.65 + state.wind * 1.2) + s.phase) * waveRollAmp;
+        const pitch = -s.chestLift * 0.24 + Math.cos(t * (2.1 + state.wind * 1.3) + s.phase) * (0.014 + state.wind * 0.036);
 
         s.root.position.set(s.x, 0, s.z);
         s.root.rotation.y = s.heading;

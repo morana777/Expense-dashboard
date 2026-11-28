@@ -38,6 +38,13 @@ import {
   ArrowRight,
   RotateCcw,
   SlidersHorizontal,
+  CloudRain,
+  CloudSnow,
+  Wind,
+  Cloud,
+  CloudLightning,
+  MapPin,
+  Sparkles,
 } from "lucide-react";
 import ThreeBackground from "./ThreeBackground.jsx";
 
@@ -103,6 +110,437 @@ function isNightAtLocation(date, coords) {
   }
   const h = date.getHours();
   return h >= 18 || h < 6;
+}
+
+const DEFAULT_LIVE_WEATHER = {
+  code: 0,
+  label: "Clear",
+  tempC: null,
+  windKmh: 8,
+  rainIntensity: 0,
+  snowIntensity: 0,
+  windIntensity: 0.12,
+  windDirDeg: 250,
+  cloudIntensity: 0.15,
+  sunIntensity: 0.5,
+  fogIntensity: 0.08,
+  stormIntensity: 0,
+};
+
+const WEATHER_PRESETS = {
+  sun: {
+    code: 0,
+    label: "Clear Sun",
+    tempC: 22,
+    windKmh: 7,
+    rainIntensity: 0,
+    snowIntensity: 0,
+    windIntensity: 0.1,
+    windDirDeg: 240,
+    cloudIntensity: 0.05,
+    sunIntensity: 1.0,
+    fogIntensity: 0.02,
+    stormIntensity: 0,
+  },
+  rain: {
+    code: 63,
+    label: "Rain",
+    tempC: 12,
+    windKmh: 19,
+    rainIntensity: 0.8,
+    snowIntensity: 0,
+    windIntensity: 0.42,
+    windDirDeg: 235,
+    cloudIntensity: 0.84,
+    sunIntensity: 0,
+    fogIntensity: 0.42,
+    stormIntensity: 0,
+  },
+  snow: {
+    code: 73,
+    label: "Snow",
+    tempC: -2,
+    windKmh: 12,
+    rainIntensity: 0,
+    snowIntensity: 0.88,
+    windIntensity: 0.25,
+    windDirDeg: 290,
+    cloudIntensity: 0.78,
+    sunIntensity: 0,
+    fogIntensity: 0.5,
+    stormIntensity: 0,
+  },
+  wind: {
+    code: 2,
+    label: "Windy",
+    tempC: 15,
+    windKmh: 38,
+    rainIntensity: 0,
+    snowIntensity: 0,
+    windIntensity: 0.88,
+    windDirDeg: 260,
+    cloudIntensity: 0.45,
+    sunIntensity: 0.28,
+    fogIntensity: 0.14,
+    stormIntensity: 0,
+  },
+  storm: {
+    code: 95,
+    label: "Storm",
+    tempC: 16,
+    windKmh: 44,
+    rainIntensity: 0.94,
+    snowIntensity: 0,
+    windIntensity: 0.84,
+    windDirDeg: 225,
+    cloudIntensity: 0.96,
+    sunIntensity: 0,
+    fogIntensity: 0.56,
+    stormIntensity: 1.0,
+  },
+};
+
+function mapWeatherState(cur) {
+  if (!cur || typeof cur !== "object") return DEFAULT_LIVE_WEATHER;
+  const code = Number(cur.weather_code ?? 0);
+  const tempC = Number.isFinite(Number(cur.temperature_2m)) ? Number(cur.temperature_2m) : null;
+  const windKmh = Math.max(0, Number(cur.wind_speed_10m ?? 0));
+  const windDirDeg = Number.isFinite(Number(cur.wind_direction_10m)) ? Number(cur.wind_direction_10m) : 250;
+  const cloudPct = Math.min(100, Math.max(0, Number(cur.cloud_cover ?? 15))) / 100;
+  const rainMm = Math.max(0, Number(cur.rain ?? cur.precipitation ?? 0));
+  const snowCm = Math.max(0, Number(cur.snowfall ?? 0));
+  const isDay = Number(cur.is_day ?? 1) === 1;
+
+  let windIntensity = Math.min(1, Math.max(0, (windKmh - 5) / 38));
+  let rainIntensity = 0;
+  let snowIntensity = 0;
+  let cloudIntensity = cloudPct;
+  let sunIntensity = 0;
+  let fogIntensity = 0.06;
+  let stormIntensity = 0;
+  let label = isDay ? "Clear" : "Clear Night";
+
+  if (code === 0 || code === 1) {
+    sunIntensity = isDay ? (code === 0 ? 1.0 : 0.72) : 0.12;
+    cloudIntensity = Math.max(cloudPct, code === 0 ? 0.04 : 0.18);
+    fogIntensity = 0.04;
+    label = code === 0 ? (isDay ? "Sunny" : "Clear") : "Mostly Clear";
+  } else if (code === 2) {
+    sunIntensity = isDay ? 0.32 : 0.05;
+    cloudIntensity = Math.max(cloudPct, 0.46);
+    fogIntensity = 0.1;
+    label = "Partly Cloudy";
+  } else if (code === 3) {
+    cloudIntensity = Math.max(cloudPct, 0.85);
+    fogIntensity = 0.2;
+    label = "Overcast";
+  } else if (code === 45 || code === 48) {
+    cloudIntensity = Math.max(cloudPct, 0.75);
+    fogIntensity = 0.92;
+    label = code === 48 ? "Rime Fog" : "Foggy";
+  } else if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) {
+    const heavy = [55, 57, 65, 67, 82].includes(code);
+    const moderate = [53, 63, 81].includes(code);
+    rainIntensity = Math.min(1, Math.max(heavy ? 0.94 : moderate ? 0.68 : 0.38, rainMm / 4));
+    cloudIntensity = Math.max(cloudPct, 0.78);
+    fogIntensity = 0.25 + rainIntensity * 0.3;
+    label = code >= 80 ? "Showers" : code >= 61 ? (heavy ? "Heavy Rain" : "Rain") : "Drizzle";
+  } else if ([71, 73, 75, 77, 85, 86].includes(code)) {
+    const heavy = [75, 86].includes(code);
+    const moderate = [73, 85].includes(code);
+    snowIntensity = Math.min(1, Math.max(heavy ? 0.96 : moderate ? 0.72 : 0.42, snowCm / 1.5));
+    cloudIntensity = Math.max(cloudPct, 0.74);
+    fogIntensity = 0.28 + snowIntensity * 0.28;
+    label = heavy ? "Heavy Snow" : "Snow";
+  } else if ([95, 96, 99].includes(code)) {
+    stormIntensity = code === 95 ? 0.88 : 1.0;
+    rainIntensity = Math.max(0.86, Math.min(1, rainMm / 4));
+    windIntensity = Math.max(windIntensity, 0.68);
+    cloudIntensity = Math.max(cloudPct, 0.94);
+    fogIntensity = 0.5;
+    label = "Thunderstorm";
+  }
+
+  if (rainIntensity === 0 && snowIntensity === 0 && windIntensity >= 0.48) {
+    label = windIntensity >= 0.72 ? "Windy" : "Breezy";
+  }
+
+  return {
+    code,
+    label,
+    tempC,
+    windKmh,
+    rainIntensity,
+    snowIntensity,
+    windIntensity,
+    windDirDeg,
+    cloudIntensity,
+    sunIntensity,
+    fogIntensity,
+    stormIntensity,
+  };
+}
+
+function describeSwanWeatherEffect(w) {
+  if (!w) return "Swans glide across calm silver ripples.";
+  if (w.stormIntensity >= 0.35) {
+    return "Lightning startles the swans while they tuck necks tight and ride storm chop.";
+  }
+  if (w.rainIntensity >= 0.25) {
+    return "Swans tuck their necks, shelter wings, shake off raindrops, and gather closer.";
+  }
+  if (w.snowIntensity >= 0.25) {
+    return "Swans slow into a serene glide with tucked necks under drifting snowfall.";
+  }
+  if (w.windIntensity >= 0.45) {
+    return "Swans turn into the wind, ride steeper wave chop, and lift tails against gusts.";
+  }
+  if (w.fogIntensity >= 0.5) {
+    return "Swans drift quietly through low lake mist leaving soft ripples.";
+  }
+  if (w.sunIntensity >= 0.55) {
+    return "Swans lift their chests and sunbathe wings across bright sunlit water.";
+  }
+  return "Swans patrol calmly across glassy lake ripples.";
+}
+
+function WeatherIcon({ weather, dark, size = 14 }) {
+  if (!weather) return dark ? <Moon size={size} /> : <Sun size={size} />;
+  if (weather.stormIntensity >= 0.35) return <CloudLightning size={size} />;
+  if (weather.snowIntensity >= 0.22) return <CloudSnow size={size} />;
+  if (weather.rainIntensity >= 0.22) return <CloudRain size={size} />;
+  if (weather.windIntensity >= 0.48) return <Wind size={size} />;
+  if (weather.cloudIntensity >= 0.55 || weather.fogIntensity >= 0.45) return <Cloud size={size} />;
+  return dark ? <Moon size={size} /> : <Sun size={size} />;
+}
+
+const CATEGORY_KEYWORDS = {
+  Food: [
+    "grocery", "groceries", "trader joe", "whole foods", "kroger", "safeway", "aldi", "costco",
+    "starbucks", "coffee", "cafe", "bakery", "restaurant", "dining", "pizza", "burger",
+    "chipotle", "sushi", "doordash", "ubereats", "uber eats", "grubhub", "instacart",
+    "postmates", "mcdonald", "subway", "panera", "taco", "diner", "bistro", "pub", "deli",
+  ],
+  Housing: [
+    "rent", "mortgage", "landlord", "apartment", "hoa", "property", "electric", "water",
+    "utility", "utilities", "pg&e", "coned", "internet", "wifi", "comcast", "xfinity",
+    "verizon", "at&t", "fiber", "sewer", "trash", "home depot", "lowe", "ikea", "plumbing",
+  ],
+  Transport: [
+    "uber", "lyft", "taxi", "metro", "transit", "train", "amtrak", "bart", "mta", "bus",
+    "flight", "airline", "delta", "united", "southwest", "american air", "shell", "chevron",
+    "exxon", "bp ", "fuel", "gas station", "parking", "toll", "ezpass", "car wash", "geico", "progressive",
+  ],
+  Entertainment: [
+    "netflix", "spotify", "hulu", "disney", "hbo", "max", "apple tv", "youtube", "prime video",
+    "cinema", "movie", "amc", "regal", "ticketmaster", "concert", "museum", "steam",
+    "playstation", "xbox", "nintendo", "twitch", "gym", "fitness", "audible",
+  ],
+  Shopping: [
+    "amazon", "target", "walmart", "best buy", "apple store", "apple.com", "nike", "adidas",
+    "zara", "uniqlo", "h&m", "nordstrom", "sephora", "ulta", "etsy", "ebay", "cvs",
+    "walgreens", "pharmacy", "clothing", "apparel",
+  ],
+};
+
+function autoCategorizeExpense(title, rawCategory) {
+  const cleanRaw = String(rawCategory || "").trim();
+  const exact = CATEGORIES.find((c) => c.toLowerCase() === cleanRaw.toLowerCase());
+  if (exact) return { category: exact, autoDetected: false };
+
+  const rawLower = cleanRaw.toLowerCase();
+  if (rawLower) {
+    if (/food|dining|grocer|coffee|restaurant|drink/.test(rawLower)) return { category: "Food", autoDetected: true };
+    if (/home|hous|rent|util|bill|internet/.test(rawLower)) return { category: "Housing", autoDetected: true };
+    if (/trans|auto|travel|gas|fuel|uber|flight|transit/.test(rawLower)) return { category: "Transport", autoDetected: true };
+    if (/entertain|media|stream|music|game|gym|sport/.test(rawLower)) return { category: "Entertainment", autoDetected: true };
+    if (/shop|merch|retail|cloth|pharm|elect/.test(rawLower)) return { category: "Shopping", autoDetected: true };
+  }
+
+  const hay = ` ${String(title || "").toLowerCase()} `;
+  for (const [cat, words] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (words.some((w) => hay.includes(w))) {
+      return { category: cat, autoDetected: true };
+    }
+  }
+  return { category: "Other", autoDetected: false };
+}
+
+function normalizeDateString(raw, fallbackDate) {
+  const s = String(raw || "").trim();
+  if (!s) return fallbackDate;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const slashIso = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  if (slashIso) {
+    return `${slashIso[1]}-${slashIso[2].padStart(2, "0")}-${slashIso[3].padStart(2, "0")}`;
+  }
+  const mdy = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+  if (mdy) {
+    let year = Number(mdy[3]);
+    if (year < 100) year += 2000;
+    let month = Number(mdy[1]);
+    let day = Number(mdy[2]);
+    if (month > 12 && day <= 12) {
+      const tmp = month;
+      month = day;
+      day = tmp;
+    }
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+  const parsed = new Date(s);
+  if (!Number.isNaN(parsed.getTime())) {
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+  }
+  return fallbackDate;
+}
+
+function parseAmountValue(raw) {
+  let s = String(raw || "").trim();
+  if (!s) return Number.NaN;
+  const parenNeg = /^\(.*\)$/.test(s);
+  s = s.replace(/[(),$\s€£¥]/g, "");
+  const n = Number(s);
+  if (!Number.isFinite(n)) return Number.NaN;
+  return parenNeg ? -Math.abs(n) : n;
+}
+
+function parseCSVMatrix(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          cell += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cell += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      row.push(cell.trim());
+      cell = "";
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell.trim());
+      if (row.some((c) => c.length > 0)) rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += ch;
+    }
+  }
+  row.push(cell.trim());
+  if (row.some((c) => c.length > 0)) rows.push(row);
+  return rows;
+}
+
+function parseBankCSV(text, existingExpenses, fallbackDate, fileName) {
+  const matrix = parseCSVMatrix(text);
+  if (matrix.length === 0) return { rows: [], skippedCredits: 0, fileName };
+
+  const header = matrix[0].map((h) => h.toLowerCase());
+  const looksLikeHeader = header.some((h) => /date|desc|merchant|payee|title|amount|debit|credit|category/.test(h));
+  const dataRows = looksLikeHeader ? matrix.slice(1) : matrix;
+
+  let dateIdx = -1;
+  let titleIdx = 0;
+  let amountIdx = 1;
+  let debitIdx = -1;
+  let creditIdx = -1;
+  let catIdx = 2;
+  let freqIdx = 4;
+
+  if (looksLikeHeader) {
+    dateIdx = header.findIndex((h) => /date|posted|trans.*date/.test(h));
+    titleIdx = header.findIndex((h) => /desc|merchant|payee|memo|name|title|narrative/.test(h));
+    amountIdx = header.findIndex((h) => /^amount$|amt|value|total/.test(h));
+    debitIdx = header.findIndex((h) => /debit|withdrawal|outflow|charge/.test(h));
+    creditIdx = header.findIndex((h) => /credit|deposit|inflow/.test(h));
+    catIdx = header.findIndex((h) => /cat|group/.test(h));
+    freqIdx = header.findIndex((h) => /freq|recur/.test(h));
+    if (titleIdx < 0) titleIdx = header.findIndex((h, idx) => idx !== dateIdx && idx !== amountIdx && idx !== debitIdx && idx !== creditIdx);
+    if (titleIdx < 0) titleIdx = 0;
+  } else {
+    dateIdx = 3;
+  }
+
+  let hasNegatives = false;
+  if (amountIdx >= 0) {
+    for (const r of dataRows) {
+      const v = parseAmountValue(r[amountIdx]);
+      if (Number.isFinite(v) && v < 0) {
+        hasNegatives = true;
+        break;
+      }
+    }
+  }
+
+  const existingKeys = new Set(
+    existingExpenses.map((e) => `${e.date}|${Number(e.amount).toFixed(2)}|${e.title.toLowerCase().slice(0, 12)}`)
+  );
+
+  const parsed = [];
+  let skippedCredits = 0;
+
+  for (let i = 0; i < dataRows.length; i++) {
+    const r = dataRows[i];
+    let amt = Number.NaN;
+    if (debitIdx >= 0) {
+      const deb = parseAmountValue(r[debitIdx]);
+      const cred = creditIdx >= 0 ? parseAmountValue(r[creditIdx]) : Number.NaN;
+      if (Number.isFinite(deb) && Math.abs(deb) > 0) {
+        amt = Math.abs(deb);
+      } else if (Number.isFinite(cred) && Math.abs(cred) > 0) {
+        skippedCredits++;
+        continue;
+      }
+    } else if (amountIdx >= 0) {
+      const rawAmt = parseAmountValue(r[amountIdx]);
+      if (!Number.isFinite(rawAmt) || rawAmt === 0) continue;
+      if (hasNegatives) {
+        if (rawAmt > 0) {
+          skippedCredits++;
+          continue;
+        }
+        amt = Math.abs(rawAmt);
+      } else {
+        amt = rawAmt;
+      }
+    }
+
+    if (!Number.isFinite(amt) || amt <= 0) continue;
+    const cleanTitle = (r[titleIdx] || "Imported transaction").replace(/\s+/g, " ").trim();
+    const dateVal = normalizeDateString(dateIdx >= 0 ? r[dateIdx] : "", fallbackDate);
+    const { category, autoDetected } = autoCategorizeExpense(cleanTitle, catIdx >= 0 ? r[catIdx] : "");
+    const freqRaw = freqIdx >= 0 ? r[freqIdx] : "";
+    const frequency = FREQUENCIES.includes(freqRaw) ? freqRaw : "One-time";
+    const dupKey = `${dateVal}|${amt.toFixed(2)}|${cleanTitle.toLowerCase().slice(0, 12)}`;
+    const isDuplicate = existingKeys.has(dupKey);
+
+    parsed.push({
+      key: `${i}-${dateVal}-${amt}`,
+      title: cleanTitle,
+      amount: Number(amt.toFixed(2)),
+      date: dateVal,
+      category,
+      autoDetected,
+      frequency,
+      isDuplicate,
+      selected: !isDuplicate,
+    });
+  }
+
+  return { rows: parsed, skippedCredits, fileName };
 }
 
 function formatShortMonth(ym) {
@@ -217,6 +655,10 @@ export default function App() {
   // Navigation & Modal UI state
   const [activeTab, setActiveTab] = useState("overview");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showWrappedModal, setShowWrappedModal] = useState(false);
+  const [wrappedMonth, setWrappedMonth] = useState("");
+  const [csvPreview, setCsvPreview] = useState(null);
+  const [csvImporting, setCsvImporting] = useState(false);
 
   // Theme & Preferences
   const [themeMode, setThemeMode] = useState(() => {
@@ -228,6 +670,35 @@ export default function App() {
     }
   });
   const [geoCoords, setGeoCoords] = useState(() => readStoredCoords());
+  const [locationName, setLocationName] = useState(() => {
+    try {
+      return localStorage.getItem("user_location_name") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [weatherMode, setWeatherMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem("lake_weather_mode");
+      return saved === "live" || saved === "sun" || saved === "rain" || saved === "snow" || saved === "wind" || saved === "storm"
+        ? saved
+        : "live";
+    } catch {
+      return "live";
+    }
+  });
+  const [liveWeather, setLiveWeather] = useState(() => {
+    try {
+      const raw = localStorage.getItem("user_live_weather");
+      return raw ? { ...DEFAULT_LIVE_WEATHER, ...JSON.parse(raw) } : DEFAULT_LIVE_WEATHER;
+    } catch {
+      return DEFAULT_LIVE_WEATHER;
+    }
+  });
+  const activeWeather = useMemo(
+    () => (weatherMode === "live" ? liveWeather : WEATHER_PRESETS[weatherMode] || liveWeather),
+    [weatherMode, liveWeather]
+  );
   const [autoNight, setAutoNight] = useState(() => isNightAtLocation(new Date(), readStoredCoords()));
   const darkMode = themeMode === "dark" ? true : themeMode === "light" ? false : autoNight;
   const toggleTheme = () => setThemeMode(darkMode ? "light" : "dark");
@@ -332,6 +803,12 @@ export default function App() {
   }, [currency]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem("lake_weather_mode", weatherMode);
+    } catch {}
+  }, [weatherMode]);
+
+  useEffect(() => {
     const id = setInterval(() => {
       const next = new Date();
       setClockNow(next);
@@ -343,28 +820,111 @@ export default function App() {
   }, [themeMode, geoCoords]);
 
   useEffect(() => {
-    if (themeMode !== "auto") return;
-    if (typeof navigator === "undefined" || !navigator.geolocation) return;
     let cancelled = false;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
+
+    const fetchOpenMeteo = async (lat, lon) => {
+      try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,precipitation,rain,snowfall,cloud_cover,is_day&wind_speed_unit=kmh`;
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !data?.current) return;
+        const mapped = mapWeatherState(data.current);
+        setLiveWeather(mapped);
+        try {
+          localStorage.setItem("user_live_weather", JSON.stringify(mapped));
+        } catch {}
+      } catch {}
+    };
+
+    const resolveLocality = async (lat, lon) => {
+      try {
+        const res = await fetch(
+          `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&localityLanguage=en`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
         if (cancelled) return;
-        const lat = Number(pos.coords.latitude.toFixed(2));
-        const lon = Number(pos.coords.longitude.toFixed(2));
+        const label = data?.city || data?.locality || data?.principalSubdivision || data?.countryName || "";
+        if (label) {
+          setLocationName(label);
+          try {
+            localStorage.setItem("user_location_name", label);
+          } catch {}
+        }
+      } catch {}
+    };
+
+    const fetchIpFallback = async () => {
+      try {
+        const res = await fetch("https://get.geojs.io/v1/ip/geo.json");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const lat = Number(Number(data?.latitude).toFixed(2));
+        const lon = Number(Number(data?.longitude).toFixed(2));
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
         const next = { lat, lon };
         setGeoCoords(next);
         setAutoNight(isNightAtLocation(new Date(), next));
         try {
           localStorage.setItem("user_coords", JSON.stringify(next));
         } catch {}
-      },
-      () => {},
-      { maximumAge: 1800000, timeout: 6000 }
-    );
+        const label = [data?.city, data?.region || data?.country].filter(Boolean).slice(0, 1)[0] || data?.country || "";
+        if (label) {
+          setLocationName(label);
+          try {
+            localStorage.setItem("user_location_name", label);
+          } catch {}
+        }
+        await fetchOpenMeteo(lat, lon);
+      } catch {}
+    };
+
+    const stored = readStoredCoords();
+    if (stored) {
+      fetchOpenMeteo(stored.lat, stored.lon);
+      let hasStoredLoc = false;
+      try {
+        hasStoredLoc = Boolean(localStorage.getItem("user_location_name"));
+      } catch {}
+      if (!hasStoredLoc) resolveLocality(stored.lat, stored.lon);
+    }
+
+    if (typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (cancelled) return;
+          const lat = Number(pos.coords.latitude.toFixed(2));
+          const lon = Number(pos.coords.longitude.toFixed(2));
+          const next = { lat, lon };
+          setGeoCoords(next);
+          setAutoNight(isNightAtLocation(new Date(), next));
+          try {
+            localStorage.setItem("user_coords", JSON.stringify(next));
+          } catch {}
+          resolveLocality(lat, lon);
+          fetchOpenMeteo(lat, lon);
+        },
+        () => {
+          if (!stored && !cancelled) fetchIpFallback();
+        },
+        { maximumAge: 900000, timeout: 6000 }
+      );
+    } else if (!stored) {
+      fetchIpFallback();
+    }
+
+    const refreshId = setInterval(() => {
+      const latest = readStoredCoords();
+      if (latest) fetchOpenMeteo(latest.lat, latest.lon);
+    }, 900000);
+
     return () => {
       cancelled = true;
+      clearInterval(refreshId);
     };
-  }, [themeMode]);
+  }, []);
 
   useEffect(() => {
     if (!lastDeleted) return;
@@ -822,6 +1382,102 @@ export default function App() {
 
   const heatLevel = (amt) => (amt <= 0 ? 0 : amt < 25 ? 1 : amt < 75 ? 2 : amt < 160 ? 3 : 4);
 
+  const activeWrappedMonth = wrappedMonth || activeMonth;
+  const wrappedStats = useMemo(() => {
+    const target = activeWrappedMonth;
+    const [wy, wm] = target.split("-").map(Number);
+    const prevY = wm === 1 ? wy - 1 : wy;
+    const prevM = wm === 1 ? 12 : wm - 1;
+    const prevYm = `${prevY}-${String(prevM).padStart(2, "0")}`;
+
+    const currRows = expenses.filter((e) => e.date?.startsWith(target));
+    const prevRows = expenses.filter((e) => e.date?.startsWith(prevYm));
+    const currTotal = currRows.reduce((s, e) => s + Number(e.amount || 0), 0);
+    const prevTotal = prevRows.reduce((s, e) => s + Number(e.amount || 0), 0);
+    const deltaPct = prevTotal > 0 ? Math.round(((currTotal - prevTotal) / prevTotal) * 100) : null;
+
+    const netSaved = monthlyIncome - currTotal;
+    const savingsRate = monthlyIncome > 0 ? Math.round((netSaved / monthlyIncome) * 100) : null;
+
+    const currCatMap = {};
+    const prevCatMap = {};
+    currRows.forEach((e) => {
+      const c = e.category || "Other";
+      currCatMap[c] = (currCatMap[c] || 0) + Number(e.amount || 0);
+    });
+    prevRows.forEach((e) => {
+      const c = e.category || "Other";
+      prevCatMap[c] = (prevCatMap[c] || 0) + Number(e.amount || 0);
+    });
+
+    const sortedCats = Object.entries(currCatMap).sort((a, b) => b[1] - a[1]);
+    const topCat = sortedCats[0]
+      ? { name: sortedCats[0][0], amount: sortedCats[0][1], pct: currTotal > 0 ? Math.round((sortedCats[0][1] / currTotal) * 100) : 0 }
+      : null;
+
+    let biggestDrop = null;
+    if (prevTotal > 0) {
+      CATEGORIES.forEach((c) => {
+        const diff = (prevCatMap[c] || 0) - (currCatMap[c] || 0);
+        if (diff > 1 && (!biggestDrop || diff > biggestDrop.saved)) {
+          biggestDrop = { name: c, saved: diff };
+        }
+      });
+    }
+
+    const totalDaysInWrap = wy && wm ? new Date(wy, wm, 0).getDate() : 30;
+    const trackedDays = target === currentMonthStr ? Math.min(clockNow.getDate(), totalDaysInWrap) : totalDaysInWrap;
+    const daySums = {};
+    currRows.forEach((e) => {
+      const d = Number(e.date?.slice(8, 10));
+      if (d >= 1 && d <= totalDaysInWrap) daySums[d] = (daySums[d] || 0) + Number(e.amount || 0);
+    });
+
+    let noSpendDays = 0;
+    let peakDay = null;
+    for (let d = 1; d <= trackedDays; d++) {
+      const amt = daySums[d] || 0;
+      if (amt === 0) noSpendDays++;
+      if (!peakDay || amt > peakDay.amount) {
+        peakDay = { date: `${target}-${String(d).padStart(2, "0")}`, amount: amt };
+      }
+    }
+    if (peakDay && peakDay.amount <= 0) peakDay = null;
+
+    const underBudgetCount = CATEGORIES.filter((c) => (budgets[c] || 0) > 0 && (currCatMap[c] || 0) <= budgets[c]).length;
+    const budgetedCount = CATEGORIES.filter((c) => (budgets[c] || 0) > 0).length;
+
+    let verdict = "Log expenses in this month to generate your Month-End Wrapped summary.";
+    if (currRows.length > 0) {
+      if (monthlyIncome > 0 && netSaved >= 0) {
+        verdict = `Saved ${savingsRate}% of income with ${noSpendDays} no-spend days and ${underBudgetCount}/${budgetedCount} categories on budget.`;
+      } else if (monthlyIncome > 0) {
+        verdict = `Spent ${currencySymbol}${Math.abs(netSaved).toFixed(0)} above income; ${topCat ? `${topCat.name} led at ${topCat.pct}%` : "review top categories"}.`;
+      } else {
+        verdict = `Logged ${currRows.length} entries totaling ${currencySymbol}${currTotal.toFixed(0)} across ${trackedDays - noSpendDays} active spend days.`;
+      }
+    }
+
+    return {
+      month: target,
+      prevYm,
+      entryCount: currRows.length,
+      currTotal,
+      prevTotal,
+      deltaPct,
+      netSaved,
+      savingsRate,
+      topCat,
+      biggestDrop,
+      noSpendDays,
+      trackedDays,
+      peakDay,
+      underBudgetCount,
+      budgetedCount,
+      verdict,
+    };
+  }, [activeWrappedMonth, expenses, monthlyIncome, budgets, currentMonthStr, clockNow, currencySymbol]);
+
   // Expense Mutations (Worker + Optimistic Cache)
   const createExpense = async (cleanTitle, num, cat, d, freq) => {
     const tempId = Date.now() + Math.floor(Math.random() * 1000);
@@ -1149,32 +1805,103 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const parseCSVLine = (line) => {
-    const m = line.match(/"([^"]*)"|[^,]+/g) || [];
-    return m.map((s) => s.replace(/^"|"$/g, "").trim());
-  };
-
   const importCSV = async (ev) => {
     const file = ev.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    const lines = text.split(/\r?\n/).filter(Boolean);
-    let addedCount = 0;
-    for (const line of lines) {
-      if (line.toLowerCase().startsWith("title,")) continue;
-      const parts = parseCSVLine(line);
-      if (parts.length < 2) continue;
-      const amt = Number(parts[1]);
-      if (!Number.isFinite(amt) || amt <= 0) continue;
-      const cleanTitle = parts[0] || "Imported expense";
-      const cat = CATEGORIES.includes(parts[2]) ? parts[2] : "Other";
-      const d = parts[3] && /^\d{4}-\d{2}-\d{2}$/.test(parts[3]) ? parts[3] : todayStr;
-      const freq = FREQUENCIES.includes(parts[4]) ? parts[4] : "One-time";
-      await createExpense(cleanTitle, amt, cat, d, freq);
-      addedCount++;
+    try {
+      const text = await file.text();
+      const parsed = parseBankCSV(text, expenses, todayStr, file.name);
+      if (parsed.rows.length === 0) {
+        setStatusMsg("No expense rows detected in CSV.");
+      } else {
+        setCsvPreview(parsed);
+      }
+    } catch {
+      setError("Could not read CSV file.");
     }
-    setStatusMsg(addedCount > 0 ? `Imported ${addedCount} expenses.` : "No valid rows found in CSV.");
     ev.target.value = "";
+  };
+
+  const toggleCsvRow = (key) => {
+    setCsvPreview((prev) =>
+      prev
+        ? {
+            ...prev,
+            rows: prev.rows.map((r) => (r.key === key ? { ...r, selected: !r.selected } : r)),
+          }
+        : prev
+    );
+  };
+
+  const updateCsvRowCategory = (key, nextCat) => {
+    setCsvPreview((prev) =>
+      prev
+        ? {
+            ...prev,
+            rows: prev.rows.map((r) => (r.key === key ? { ...r, category: nextCat, autoDetected: false } : r)),
+          }
+        : prev
+    );
+  };
+
+  const commitCsvImport = async () => {
+    if (!csvPreview || csvImporting) return;
+    const selected = csvPreview.rows.filter((r) => r.selected);
+    if (selected.length === 0) {
+      setCsvPreview(null);
+      return;
+    }
+
+    setCsvImporting(true);
+    const baseSeed = Date.now();
+    const newItems = selected.map((r, idx) => ({
+      id: baseSeed + idx,
+      title: r.title,
+      amount: r.amount,
+      category: r.category,
+      date: r.date,
+      frequency: r.frequency || "One-time",
+    }));
+
+    setExpenses((prev) => {
+      const next = [...newItems, ...prev];
+      writeCache({ expenses: next });
+      return next;
+    });
+
+    if (authToken && authToken !== "guest") {
+      await Promise.all(
+        newItems.map(async (item) => {
+          try {
+            const res = await fetch(`${API_URL}/expenses`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+              body: JSON.stringify({
+                title: item.title,
+                amount: item.amount,
+                category: item.category,
+                date: item.date,
+                frequency: item.frequency,
+              }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.id) {
+                setExpenses((prev) => {
+                  const synced = prev.map((ex) => (ex.id === item.id ? { ...ex, id: data.id } : ex));
+                  writeCache({ expenses: synced });
+                  return synced;
+                });
+              }
+            }
+          } catch {}
+        })
+      );
+    }
+
+    setCsvImporting(false);
+    setCsvPreview(null);
+    setStatusMsg(`Imported ${newItems.length} transactions.`);
   };
 
   const backupJSON = () => {
@@ -1259,7 +1986,7 @@ export default function App() {
   if (!user) {
     return (
       <div className={`app login-page ${darkMode ? "dark" : ""}`}>
-        <ThreeBackground dark={darkMode} />
+        <ThreeBackground dark={darkMode} weather={activeWeather} />
         <div className="login-top">
           <div className="brand-lockup">
             <img src="/favicon.svg?v=2" alt="" className="brand-icon" width="32" height="32" />
@@ -1267,10 +1994,37 @@ export default function App() {
               <span className="brand-primary">Money</span> <span className="brand-accent">Dashboard</span>
             </span>
           </div>
-          <button type="button" className="ghost-btn" onClick={toggleTheme}>
-            {darkMode ? <Sun size={15} /> : <Moon size={15} />}
-            <span>{darkMode ? "Light" : "Dark"}</span>
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            {(locationName || activeWeather.tempC !== null) && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 13,
+                  color: "var(--ink-dim)",
+                }}
+                title={describeSwanWeatherEffect(activeWeather)}
+              >
+                {locationName && (
+                  <>
+                    <MapPin size={13} />
+                    <span>{locationName}</span>
+                    <span aria-hidden="true">·</span>
+                  </>
+                )}
+                <WeatherIcon weather={activeWeather} dark={darkMode} size={13} />
+                <span>
+                  {activeWeather.label}
+                  {activeWeather.tempC !== null ? ` ${Math.round(activeWeather.tempC)}°C` : ""}
+                </span>
+              </span>
+            )}
+            <button type="button" className="ghost-btn" onClick={toggleTheme}>
+              {darkMode ? <Sun size={15} /> : <Moon size={15} />}
+              <span>{darkMode ? "Light" : "Dark"}</span>
+            </button>
+          </div>
         </div>
 
         <div className="login-wrap">
@@ -1349,7 +2103,7 @@ export default function App() {
 
   return (
     <div className={`app ${darkMode ? "dark" : ""}`}>
-      <ThreeBackground dark={darkMode} />
+      <ThreeBackground dark={darkMode} weather={activeWeather} />
       <div className="app-content">
 
       {/* 3-Zone Top Bar */}
@@ -1403,6 +2157,29 @@ export default function App() {
             <h1>{formatShortMonth(activeMonth)} Cashflow</h1>
             <div className="workspace-meta">
               <span>{user.email}</span>
+              {(locationName || activeWeather.tempC !== null) && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+                    title={describeSwanWeatherEffect(activeWeather)}
+                  >
+                    {locationName && (
+                      <>
+                        <MapPin size={13} />
+                        <span>{locationName}</span>
+                        <span aria-hidden="true">·</span>
+                      </>
+                    )}
+                    <WeatherIcon weather={activeWeather} dark={darkMode} size={13} />
+                    <span>
+                      {activeWeather.label}
+                      {activeWeather.tempC !== null ? ` ${Math.round(activeWeather.tempC)}°C` : ""}
+                      {activeWeather.windKmh >= 15 ? ` (${Math.round(activeWeather.windKmh)} km/h wind)` : ""}
+                    </span>
+                  </span>
+                </>
+              )}
               <span aria-hidden="true">·</span>
               <span>{daysLeft} days left in period</span>
               <span aria-hidden="true">·</span>
@@ -1444,6 +2221,18 @@ export default function App() {
                 onChange={(e) => setSavingsGoal(Math.max(0, Number(e.target.value) || 0))}
               />
             </label>
+
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => {
+                setWrappedMonth(activeMonth);
+                setShowWrappedModal(true);
+              }}
+            >
+              <Sparkles size={15} />
+              <span>Wrapped</span>
+            </button>
           </div>
         </section>
       )}
@@ -2450,6 +3239,29 @@ export default function App() {
                 </span>
               </div>
 
+              <div className="field" style={{ marginBottom: 20 }}>
+                <label>Lake & Swan Weather</label>
+                <div className="segmented" style={{ width: "fit-content", flexWrap: "wrap" }}>
+                  {[
+                    { id: "live", label: "Live Local" },
+                    { id: "sun", label: "Sun" },
+                    { id: "rain", label: "Rain" },
+                    { id: "snow", label: "Snow" },
+                    { id: "wind", label: "Wind" },
+                    { id: "storm", label: "Storm" },
+                  ].map((opt) => (
+                    <button key={opt.id} type="button" className={`seg-btn ${weatherMode === opt.id ? "active" : ""}`} onClick={() => setWeatherMode(opt.id)}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <span style={{ fontSize: 12, color: "var(--ink-muted)" }}>
+                  {weatherMode === "live"
+                    ? `Live${locationName ? ` in ${locationName}` : ""}: ${liveWeather.label}${liveWeather.tempC !== null ? ` (${Math.round(liveWeather.tempC)}°C)` : ""}. ${describeSwanWeatherEffect(activeWeather)}`
+                    : `Previewing ${activeWeather.label}: ${describeSwanWeatherEffect(activeWeather)}`}
+                </span>
+              </div>
+
               <div className="field">
                 <label>Currency Display</label>
                 <div style={{ position: "relative", maxWidth: 280 }}>
@@ -2500,6 +3312,15 @@ export default function App() {
               </div>
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <label
+                  className="ghost-btn"
+                  htmlFor="settings-import-csv"
+                  style={{ cursor: "pointer", minHeight: 40, padding: "8px 14px", borderRadius: 10, display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 14 }}
+                >
+                  <Upload size={15} />
+                  <span>Import Bank CSV</span>
+                </label>
+                <input id="settings-import-csv" type="file" accept=".csv" onChange={importCSV} style={{ display: "none" }} />
                 <button type="button" className="ghost-btn" onClick={exportCSV}>
                   <Download size={15} />
                   <span>Export CSV</span>
@@ -2573,6 +3394,182 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: MONTH-END WRAPPED ==================== */}
+      {showWrappedModal && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="wrapped-modal-title" onClick={() => setShowWrappedModal(false)}>
+          <div className="modal-card wide" onClick={(e) => e.stopPropagation()}>
+            <div className="card-head" style={{ marginBottom: 4 }}>
+              <div>
+                <h2 id="wrapped-modal-title">{formatShortMonth(wrappedStats.month)} Wrapped</h2>
+                <span className="card-sub">Monthly spending & savings highlights</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <select aria-label="Wrapped month" value={wrappedStats.month} onChange={(e) => setWrappedMonth(e.target.value)} style={{ minHeight: 36, padding: "4px 10px" }}>
+                  {availableMonths.map((ym) => (
+                    <option key={ym} value={ym}>
+                      {formatShortMonth(ym)}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="icon-btn" onClick={() => setShowWrappedModal(false)} aria-label="Close wrapped summary">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="wrapped-grid">
+              <div className="wrapped-tile">
+                <span className="wrapped-tile-label">Total Spent</span>
+                <strong className="wrapped-tile-val">
+                  {currencySymbol}
+                  {wrappedStats.currTotal.toFixed(0)}
+                </strong>
+                <span className="wrapped-tile-sub">
+                  {wrappedStats.deltaPct !== null
+                    ? `${wrappedStats.deltaPct <= 0 ? `${Math.abs(wrappedStats.deltaPct)}% less` : `${wrappedStats.deltaPct}% more`} vs ${formatShortMonth(wrappedStats.prevYm)}`
+                    : `${wrappedStats.entryCount} transactions logged`}
+                </span>
+              </div>
+
+              <div className="wrapped-tile">
+                <span className="wrapped-tile-label">Net Saved</span>
+                <strong className={`wrapped-tile-val ${wrappedStats.netSaved < 0 ? "danger" : "good"}`}>
+                  {wrappedStats.netSaved < 0 ? "-" : ""}
+                  {currencySymbol}
+                  {Math.abs(wrappedStats.netSaved).toFixed(0)}
+                </strong>
+                <span className="wrapped-tile-sub">
+                  {wrappedStats.savingsRate !== null ? `${wrappedStats.savingsRate}% of monthly income` : "Set income to see savings rate"}
+                </span>
+              </div>
+
+              <div className="wrapped-tile">
+                <span className="wrapped-tile-label">Top Category & Biggest Drop</span>
+                <strong className="wrapped-tile-val" style={{ fontSize: 17 }}>
+                  {wrappedStats.topCat ? `${wrappedStats.topCat.name} (${wrappedStats.topCat.pct}%)` : "—"}
+                </strong>
+                <span className="wrapped-tile-sub">
+                  {wrappedStats.biggestDrop
+                    ? `Cut ${wrappedStats.biggestDrop.name} by ${currencySymbol}${wrappedStats.biggestDrop.saved.toFixed(0)}`
+                    : `${wrappedStats.underBudgetCount}/${wrappedStats.budgetedCount} categories on budget`}
+                </span>
+              </div>
+
+              <div className="wrapped-tile">
+                <span className="wrapped-tile-label">No-Spend Streak & Peak</span>
+                <strong className="wrapped-tile-val">
+                  {wrappedStats.noSpendDays} / {wrappedStats.trackedDays} days
+                </strong>
+                <span className="wrapped-tile-sub">
+                  {wrappedStats.peakDay
+                    ? `Peak day: ${wrappedStats.peakDay.date.slice(5)} (${currencySymbol}${wrappedStats.peakDay.amount.toFixed(0)})`
+                    : "No spend spikes recorded"}
+                </span>
+              </div>
+            </div>
+
+            <div className="wrapped-verdict">{wrappedStats.verdict}</div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => {
+                  setShowWrappedModal(false);
+                  setActiveTab("lab");
+                }}
+              >
+                <span>Open Cashflow Lab</span>
+              </button>
+              <button type="button" onClick={() => setShowWrappedModal(false)}>
+                <span>Done</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== MODAL: CSV BANK IMPORT PREVIEW ==================== */}
+      {csvPreview && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="csv-modal-title" onClick={() => !csvImporting && setCsvPreview(null)}>
+          <div className="modal-card wide" onClick={(e) => e.stopPropagation()}>
+            <div className="card-head" style={{ marginBottom: 4 }}>
+              <div>
+                <h2 id="csv-modal-title">Review Bank CSV Import</h2>
+                <span className="card-sub">
+                  {csvPreview.fileName} · {csvPreview.rows.filter((r) => r.selected).length} selected
+                  {csvPreview.rows.filter((r) => r.isDuplicate).length > 0
+                    ? ` · ${csvPreview.rows.filter((r) => r.isDuplicate).length} duplicate${csvPreview.rows.filter((r) => r.isDuplicate).length === 1 ? "" : "s"} unchecked`
+                    : ""}
+                  {csvPreview.skippedCredits > 0 ? ` · ${csvPreview.skippedCredits} credits skipped` : ""}
+                </span>
+              </div>
+              <button type="button" className="icon-btn" onClick={() => !csvImporting && setCsvPreview(null)} aria-label="Close CSV preview">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="csv-preview-list">
+              {csvPreview.rows.map((r) => (
+                <div key={r.key} className={`csv-preview-row ${r.isDuplicate ? "dup" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={r.selected}
+                    onChange={() => toggleCsvRow(r.key)}
+                    aria-label={`Include ${r.title}`}
+                    style={{ minHeight: 16, width: 16, padding: 0 }}
+                  />
+                  <span className="mono csv-date" style={{ fontSize: 12, color: "var(--ink-dim)" }}>
+                    {r.date}
+                  </span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {r.title}
+                    </div>
+                    {(r.isDuplicate || r.autoDetected) && (
+                      <div style={{ fontSize: 11, color: r.isDuplicate ? "var(--warn)" : "var(--accent)" }}>
+                        {r.isDuplicate ? "Possible duplicate" : "Auto-categorized"}
+                      </div>
+                    )}
+                  </div>
+                  <select
+                    value={r.category}
+                    onChange={(e) => updateCsvRowCategory(r.key, e.target.value)}
+                    aria-label={`Category for ${r.title}`}
+                  >
+                    {CATEGORIES.map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </select>
+                  <strong className="num" style={{ textAlign: "right" }}>
+                    {currencySymbol}
+                    {r.amount.toFixed(2)}
+                  </strong>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+              <button type="button" className="ghost-btn" disabled={csvImporting} onClick={() => setCsvPreview(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={csvImporting || csvPreview.rows.filter((r) => r.selected).length === 0}
+                onClick={commitCsvImport}
+              >
+                <Upload size={15} />
+                <span>
+                  {csvImporting
+                    ? "Importing..."
+                    : `Import ${csvPreview.rows.filter((r) => r.selected).length} Expenses`}
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       )}
