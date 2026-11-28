@@ -58,7 +58,8 @@ app.post('/api/login', async (c) => {
 
     const token = await sign(
         { sub: user.id, email: user.email, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7 },
-        c.env.JWT_SECRET
+        c.env.JWT_SECRET,
+        'HS256'
     );
 
     return c.json({ success: true, token, user });
@@ -72,10 +73,12 @@ const authMiddleware = async (c, next) => {
     }
     try {
         const token = authHeader.split(' ')[1];
-        const payload = await verify(token, c.env.JWT_SECRET);
+        // Explicitly pass 'HS256' to prevent Hono v4 verification errors
+        const payload = await verify(token, c.env.JWT_SECRET, 'HS256');
         c.set('userId', payload.sub);
         await next();
-    } catch {
+    } catch (err) {
+        console.error("JWT verification failed:", err.message);
         return c.json({ error: "Invalid or expired token" }, 401);
     }
 };
