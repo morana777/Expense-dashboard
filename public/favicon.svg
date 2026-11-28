@@ -1,16 +1,48 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#7c3aed"/>
-      <stop offset="0.5" stop-color="#ec4899"/>
-      <stop offset="1" stop-color="#f59e0b"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1729"/>
+      <stop offset="0.55" stop-color="#132642"/>
+      <stop offset="1" stop-color="#070e1b"/>
+    </linearGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#bae6fd"/>
+      <stop offset="0.5" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="pearl" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#cbd5e1"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#g)"/>
-  <!-- wallet -->
-  <rect x="86" y="156" width="340" height="220" rx="48" fill="none" stroke="#ffffff" stroke-width="34"/>
-  <path d="M86 204 h340" fill="none" stroke="#ffffff" stroke-width="34"/>
-  <circle cx="348" cy="286" r="26" fill="#ffffff"/>
-  <!-- $ sign -->
-  <text x="200" y="322" font-family="Arial, sans-serif" font-size="110" font-weight="800" fill="#ffffff" text-anchor="middle">$</text>
+
+  <!-- Obsidian Lake Crest -->
+  <rect x="14" y="14" width="484" height="484" rx="116" fill="url(#bg)" stroke="#38bdf8" stroke-opacity="0.42" stroke-width="14"/>
+
+  <!-- Coin & Ascending Growth Disc (upper-left sky) -->
+  <circle cx="154" cy="146" r="76" fill="#0ea5e9" fill-opacity="0.16"/>
+  <circle cx="154" cy="146" r="64" fill="none" stroke="url(#sky)" stroke-width="14"/>
+  <rect x="122" y="152" width="16" height="32" rx="6" fill="#bae6fd"/>
+  <rect x="146" y="134" width="16" height="50" rx="6" fill="#7dd3fc"/>
+  <rect x="170" y="112" width="16" height="72" rx="6" fill="#38bdf8"/>
+
+  <!-- Graceful Silver Swan Silhouette -->
+  <path
+    d="M112 288
+       C124 250, 148 220, 174 226
+       C202 232, 224 252, 248 266
+       C238 220, 232 164, 260 126
+       C280 100, 318 102, 336 122
+       L374 134
+       L336 146
+       C316 146, 296 154, 286 178
+       C276 204, 294 246, 326 276
+       C344 294, 338 326, 304 338
+       C244 352, 148 344, 112 288 Z"
+    fill="url(#pearl)"
+  />
+
+  <!-- Calm Water Ripples -->
+  <path d="M98 376 Q192 356, 276 376 T414 372" fill="none" stroke="url(#sky)" stroke-width="18" stroke-linecap="round"/>
+  <path d="M148 420 Q254 404, 368 420" fill="none" stroke="#7dd3fc" stroke-opacity="0.65" stroke-width="14" stroke-linecap="round"/>
 </svg>
